@@ -46,19 +46,25 @@ function guessSentiment(text) {
 
 // ── DATA FETCHERS ─────────────────────────────────────────────────────────────
 async function fetchRSS(source) {
-  const proxy = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(source.url)}&count=5`;
+  // Calls our own /api/rss Vercel serverless function — avoids CORS issues
+  // that plague browser-side RSS proxy services on the free tier.
   try {
-    const d = await fetch(proxy).then(r => r.json());
-    if (!d.items) return [];
+    const res = await fetch("/api/rss", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ url: source.url }),
+    });
+    const d = await res.json();
+    if (!d.items || !Array.isArray(d.items)) return [];
     return d.items.slice(0, 5).map(item => ({
       id:        item.guid || item.link,
       title:     item.title,
-      summary:   (item.description || "").replace(/<[^>]+>/g, "").slice(0, 180),
+      summary:   (item.summary || "").slice(0, 180),
       url:       item.link,
       timestamp: new Date(item.pubDate || Date.now()),
       source:    source.label,
       tag:       source.tag,
-      sentiment: guessSentiment(item.title + " " + (item.description || "")),
+      sentiment: guessSentiment(item.title + " " + (item.summary || "")),
     }));
   } catch { return []; }
 }
