@@ -17,9 +17,10 @@ export default async function handler(req, res) {
     "www.aljazeera.com",
     "www.theguardian.com",
     "www.ft.com",
+    "www.arabnews.com",
+    "rsshub.app",
     "rss.cnn.com",
     "feeds.skynews.com",
-    "www.arabnews.com",
     "feeds.washingtonpost.com",
   ];
 

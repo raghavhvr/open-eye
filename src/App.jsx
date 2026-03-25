@@ -2,11 +2,11 @@ import { useState, useEffect, useRef, useCallback } from "react";
 
 // ── RSS SOURCES ──────────────────────────────────────────────────────────────
 const RSS_SOURCES = [
-  { id: "bbc-me",       label: "BBC Middle East",    url: "https://feeds.bbci.co.uk/news/world/middle_east/rss.xml", tag: "NEWS"     },
-  { id: "reuters-me",   label: "Reuters World",       url: "https://feeds.reuters.com/reuters/worldNews",             tag: "NEWS"     },
-  { id: "aljazeera",    label: "Al Jazeera",          url: "https://www.aljazeera.com/xml/rss/all.xml",               tag: "REGIONAL" },
-  { id: "guardian",     label: "The Guardian World",  url: "https://www.theguardian.com/world/rss",                   tag: "NEWS"     },
-  { id: "ft-world",     label: "FT World",            url: "https://www.ft.com/rss/home/world",                       tag: "FINANCE"  },
+  { id: "bbc-me",      label: "BBC Middle East",   url: "https://feeds.bbci.co.uk/news/world/middle_east/rss.xml",      tag: "NEWS"     },
+  { id: "aljazeera",   label: "Al Jazeera",         url: "https://www.aljazeera.com/xml/rss/all.xml",                    tag: "REGIONAL" },
+  { id: "guardian",    label: "The Guardian World", url: "https://www.theguardian.com/world/rss",                        tag: "NEWS"     },
+  { id: "arabnews",    label: "Arab News",          url: "https://www.arabnews.com/rss.xml",                             tag: "REGIONAL" },
+  { id: "ap-world",    label: "AP World News",      url: "https://rsshub.app/apnews/world-news",                         tag: "NEWS"     },
 ];
 
 const WIKI_TOPICS = [

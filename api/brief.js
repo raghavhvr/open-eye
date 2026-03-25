@@ -3,7 +3,7 @@
 // The API key lives in GEMINI_API_KEY env var (set in Vercel dashboard),
 // so it is never exposed to the browser.
 
-const GEMINI_MODEL = "gemini-2.5-flash-preview-05-20";
+const GEMINI_MODEL = "gemini-2.5-flash-preview-04-17";
 
 export default async function handler(req, res) {
   // Only allow POST
