@@ -6,7 +6,6 @@
 const GEMINI_MODEL = "gemini-2.5-flash";
 
 export default async function handler(req, res) {
-  // Only allow POST
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
@@ -14,7 +13,7 @@ export default async function handler(req, res) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return res.status(500).json({
-      error: "GEMINI_API_KEY is not set. Add it in your Vercel project → Settings → Environment Variables.",
+      error: "GEMINI_API_KEY is not set. Add it in Vercel → Settings → Environment Variables.",
     });
   }
 
@@ -45,7 +44,11 @@ Respond ONLY with a raw JSON object — no markdown fences, no explanation, no b
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: 800 },
+        generationConfig: {
+          temperature: 0.3,
+          maxOutputTokens: 1024,
+          responseMimeType: "application/json",
+        },
       }),
     });
 
@@ -55,10 +58,33 @@ Respond ONLY with a raw JSON object — no markdown fences, no explanation, no b
       return res.status(502).json({ error: data.error.message });
     }
 
-    const raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
-    const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+    // Gemini 2.5 Flash thinking mode emits multiple parts — collect all text
+    const parts = data.candidates?.[0]?.content?.parts ?? [];
+    const raw = parts
+      .filter((p) => typeof p.text === "string")
+      .map((p) => p.text)
+      .join("")
+      .trim();
 
+    if (!raw) {
+      return res.status(502).json({ error: "Empty response from Gemini" });
+    }
+
+    // Strip any accidental markdown fences, then extract the JSON object
+    const cleaned = raw
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/```\s*$/i, "")
+      .trim();
+
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      return res.status(502).json({ error: "No JSON object in Gemini response" });
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
     return res.status(200).json(parsed);
+
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

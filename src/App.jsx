@@ -87,7 +87,8 @@ async function fetchWikipedia(topic) {
 
 async function fetchHackerNews(keyword) {
   try {
-    const d = await fetch(`https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(keyword)}&tags=story&hitsPerPage=3`).then(r => r.json());
+    const since = Math.floor(Date.now() / 1000) - 7 * 24 * 3600;
+    const d = await fetch(`https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(keyword)}&tags=story&hitsPerPage=5&numericFilters=created_at_i>${since}`).then(r => r.json());
     return (d.hits || []).map(h => ({
       id:        "hn-" + h.objectID,
       title:     h.title,
@@ -201,7 +202,7 @@ function PulseRing({ score, loading }) {
 function FeedItem({ item, index }) {
   const [exp, setExp] = useState(false);
   const age = Math.floor((Date.now() - item.timestamp) / 60000);
-  const ageStr = age < 60 ? `${age}m ago` : `${Math.floor(age / 60)}h ago`;
+  const ageMins = age; const ageStr = ageMins < 60 ? `${ageMins}m ago` : ageMins < 1440 ? `${Math.floor(ageMins / 60)}h ago` : `${Math.floor(ageMins / 1440)}d ago`;
   return (
     <div onClick={() => setExp(!exp)} className="feed-item"
       style={{ background: exp ? C.surfaceHigh : C.surface, border: `1px solid ${C.outline}22`,
