@@ -1,240 +1,226 @@
-// api/lottery.js — Middle East Lottery & Luck Sentiment
-// Fetches signals specifically about lottery, lucky draws, gambling and
-// "winning" sentiment from ME communities. All free, no auth keys.
+// api/lottery.js — ME Lottery Pulse via Mastodon + Lemmy + HN + Wikipedia
+// No Reddit (403 from Vercel). All sources open, no auth.
 
-// ── Sentiment keywords tuned for ME lottery context ───────────────────────────
-const HOPEFUL  = ["win","winner","jackpot","lucky","dream","hope","million","tonight","ticket","chance","raffle","prize","draw","big","huge","blessed","fortune","rich","wealth","dream job"];
-const CYNICAL  = ["scam","fraud","rigged","impossible","never","waste","sucker","tax","odds","cheat","fake","trap","joke","nonsense","illegal","banned","haram","forbidden","government","corrupt"];
-const ANXIOUS  = ["debt","desperate","lost","spent","need","last","only","please","help","poor","broke","struggling","crisis","emergency","family","children","worried","stress","afford"];
-const NEUTRAL  = ["lottery","powerball","euromillions","numbers","draw","ticket","prize","winner","jackpot","gambling","casino","betting","raffle","sweepstake"];
+const LOT_HOPEFUL=["win","winner","jackpot","lucky","dream","hope","million","tonight","ticket","chance","raffle","prize","draw","big","blessed","fortune","rich","wealth","luckydraw","sweepstake"];
+const LOT_CYNICAL=["scam","fraud","rigged","impossible","never","waste","sucker","odds","cheat","fake","illegal","banned","haram","forbidden","corrupt","addiction"];
+const LOT_ANXIOUS=["debt","desperate","lost","spent","need","last","only","please","help","poor","broke","struggling","crisis","worry","afford","family"];
 
-function classifyLottery(text) {
-  const t = (text || "").toLowerCase();
-  const h = HOPEFUL.filter(w => t.includes(w)).length;
-  const c = CYNICAL.filter(w => t.includes(w)).length;
-  const a = ANXIOUS.filter(w => t.includes(w)).length;
-  if (a > 1)   return "ANXIOUS";
-  if (c > h+1) return "CYNICAL";
-  if (h > c+1) return "HOPEFUL";
-  if (h > 0)   return "HOPEFUL";
-  return "NEUTRAL";
+function classifyLottery(text){
+  const t=(text||"").toLowerCase();
+  const h=LOT_HOPEFUL.filter(w=>t.includes(w)).length;
+  const c=LOT_CYNICAL.filter(w=>t.includes(w)).length;
+  const a=LOT_ANXIOUS.filter(w=>t.includes(w)).length;
+  if(a>1)return"ANXIOUS";
+  if(c>h+1)return"CYNICAL";
+  if(h>c+1)return"HOPEFUL";
+  if(h>0)return"HOPEFUL";
+  return"NEUTRAL";
 }
+function stripHtml(html){return(html||"").replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim();}
 
-// ── ME-specific subreddits searched for lottery/luck/winning content ──────────
-const ME_LOTTERY_QUERIES = [
-  // Country subs with lottery-adjacent searches
-  { sub: "UAE",          query: "lottery lucky draw raffle prize win",    country: "UAE",          tag: "ME-LOTTERY" },
-  { sub: "dubai",        query: "lottery raffle lucky draw win prize",    country: "UAE",          tag: "ME-LOTTERY" },
-  { sub: "saudiarabia",  query: "lottery lucky win prize raffle",         country: "Saudi Arabia", tag: "ME-LOTTERY" },
-  { sub: "qatar",        query: "lottery lucky win prize draw",           country: "Qatar",        tag: "ME-LOTTERY" },
-  { sub: "Kuwait",       query: "lottery lucky win raffle prize",         country: "Kuwait",       tag: "ME-LOTTERY" },
-  { sub: "bahrain",      query: "lottery lucky win prize draw",           country: "Bahrain",      tag: "ME-LOTTERY" },
-  { sub: "jordan",       query: "lottery lucky win prize",                country: "Jordan",       tag: "ME-LOTTERY" },
-  { sub: "lebanon",      query: "lottery lucky win prize",                country: "Lebanon",      tag: "ME-LOTTERY" },
-  { sub: "MiddleEast",   query: "lottery lucky gambling winning prize",   country: "Regional",     tag: "ME-LOTTERY" },
-  { sub: "expats",       query: "lottery lucky draw UAE Dubai prize win", country: "Regional",     tag: "EXPAT"       },
-  // General lottery subs for baseline global sentiment
-  { sub: "lottery",      query: "",                                       country: "Global",       tag: "LOTTERY"     },
-  { sub: "gambling",     query: "",                                       country: "Global",       tag: "GAMBLING"    },
+// ── Mastodon hashtag lottery signals ─────────────────────────────────────────
+const MASTO_LOT_TAGS=[
+  {tag:"lottery",     label:"Lottery"},
+  {tag:"jackpot",     label:"Jackpot"},
+  {tag:"luckydraw",   label:"Lucky Draw"},
+  {tag:"gambling",    label:"Gambling"},
+  {tag:"winning",     label:"Winning"},
+  {tag:"raffle",      label:"Raffle"},
 ];
 
-// ── HN queries specifically about ME lottery/gambling ─────────────────────────
-const HN_ME_QUERIES = [
-  "lottery UAE Dubai",
+// ── Mastodon ME community lottery signals ─────────────────────────────────────
+// Search within ME tags for lottery-adjacent content
+const ME_LOT_TERMS=["lottery","lucky","jackpot","prize","raffle","win","gambling","luckydraw"];
+
+// ── Lemmy lottery searches ────────────────────────────────────────────────────
+const LEMMY_LOT_QUERIES=[
+  "lottery jackpot winning",
+  "gambling psychology",
+  "lottery scam fraud",
+  "lucky draw UAE Dubai",
+  "lottery addiction help",
+];
+
+// ── HN lottery/gambling queries ───────────────────────────────────────────────
+const HN_LOT_QUERIES=[
+  "lottery UAE Dubai lucky draw",
   "gambling middle east",
-  "lucky draw UAE",
-  "lottery illegal gulf",
-  "online gambling GCC",
-  "lottery winning psychology",
-  "gambling addiction",
-  "cryptocurrency lottery",
+  "lottery psychology winning",
+  "online gambling regulation gulf",
+  "lottery addiction problem",
 ];
 
-// ── Wikipedia topics for context ──────────────────────────────────────────────
-const WIKI_TOPICS = [
+// ── Wikipedia ME lottery context ──────────────────────────────────────────────
+const WIKI_TOPICS=[
   "Lottery",
-  "Gambling in the United Arab Emirates",
+  "Dubai Duty Free Millennium Millionaire",
   "Problem gambling",
   "Lucky draw",
-  "Dubai Duty Free Millennium Millionaire", // famous ME lottery
+  "Gambling in the United Arab Emirates",
 ];
 
-// ── Uncertainty score calculation ─────────────────────────────────────────────
-// Measures how contradictory / noisy the ME lottery signal is.
-// High = people are very divided (e.g. hopeful + cynical in equal measure)
-// Low  = clear dominant mood (e.g. overwhelmingly hopeful or cynical)
-function calcUncertainty(items) {
-  if (!items.length) return 75; // no data = high uncertainty
-
-  const moodCounts = { HOPEFUL: 0, CYNICAL: 0, ANXIOUS: 0, NEUTRAL: 0 };
-  const ratios = [];
-
-  for (const item of items) {
-    const mood = classifyLottery(item.title + " " + (item.summary || ""));
-    moodCounts[mood]++;
-    if (item.upvoteRatio > 0) ratios.push(item.upvoteRatio);
-  }
-
-  const total = items.length;
-  const dominant = Math.max(...Object.values(moodCounts));
-  const dominance = dominant / total; // 1 = all same, 0.25 = perfectly split
-
-  const avgRatio = ratios.length ? ratios.reduce((a,b)=>a+b,0)/ratios.length : 0.6;
-  const ratioVariance = ratios.length
-    ? ratios.reduce((acc,r) => acc + Math.pow(r - avgRatio, 2), 0) / ratios.length
-    : 0.25;
-
-  const sourceDiversity = new Set(items.map(i => i.source)).size;
-  const meSources = items.filter(i => i.tag === "ME-LOTTERY" || i.tag === "EXPAT").length;
-  const meCoverage = meSources / total;
-
-  // Low dominance = high uncertainty (signals split)
-  // High variance = high uncertainty (community divided)
-  // Low ME coverage = high uncertainty (mostly global, not ME-specific)
-  const raw =
-    (1 - dominance) * 50 +          // 0–50 pts: how split the mood is
-    ratioVariance * 30 +             // 0–30 pts: upvote ratio variance
-    (meCoverage < 0.3 ? 20 : 0);    // 20 pts: too few ME-specific signals
-
-  return Math.min(99, Math.max(1, Math.round(raw)));
+async function fetchMastodonLotteryTag(tag){
+  try{
+    const r=await fetch(
+      `https://mastodon.social/api/v1/timelines/tag/${tag}?limit=12`,
+      {signal:AbortSignal.timeout(6000),headers:{"Accept":"application/json"}}
+    );
+    if(!r.ok)return[];
+    const posts=await r.json();
+    return posts
+      .filter(p=>p.content&&!p.reblog)
+      .map(p=>{
+        const txt=stripHtml(p.content);
+        return{
+          id:"masto-lot-"+p.id,
+          title:txt.slice(0,160)||`#${tag} signal`,
+          summary:txt.slice(0,240),
+          url:p.url||"",
+          timestamp:p.created_at,
+          source:`#${tag}`,
+          sourceType:"Mastodon",
+          tag:tag.toUpperCase(),
+          country:"Global",
+          score:p.favourites_count||0,
+          comments:p.replies_count||0,
+          upvoteRatio:0.7+(p.favourites_count||0)/Math.max((p.favourites_count||0)+(p.replies_count||0)+1,1)*0.3,
+        };
+      });
+  }catch{return[];}
 }
 
-// ── Main handler ──────────────────────────────────────────────────────────────
-export default async function handler(req, res) {
-  if (req.method !== "POST" && req.method !== "GET") {
-    return res.status(405).json({ error: "Method not allowed" });
+async function fetchLemmyLottery(q){
+  try{
+    const r=await fetch(
+      `https://lemmy.world/api/v3/search?q=${encodeURIComponent(q)}&type_=Posts&sort=TopAll&limit=5`,
+      {signal:AbortSignal.timeout(6000)}
+    );
+    if(!r.ok)return[];
+    const d=await r.json();
+    return(d.posts||[]).map(p=>{
+      const post=p.post;const counts=p.counts||{};
+      return{
+        id:"lemmy-lot-"+post.id,
+        title:post.name,
+        summary:(post.body||"").slice(0,220)||`↑${counts.score||0}`,
+        url:post.ap_id||"",
+        timestamp:post.published,
+        source:"Lemmy",
+        sourceType:"Lemmy",
+        tag:"SOCIAL",
+        country:"Global",
+        score:counts.score||0,
+        comments:counts.comments||0,
+        upvoteRatio:0.75,
+      };
+    });
+  }catch{return[];}
+}
+
+async function fetchHNLottery(q){
+  const since=Math.floor(Date.now()/1000)-30*24*3600;
+  try{
+    const d=await fetch(
+      `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(q)}&tags=story&hitsPerPage=5&numericFilters=created_at_i>${since}`,
+      {signal:AbortSignal.timeout(5000)}
+    ).then(r=>r.json());
+    return(d.hits||[]).map(h=>({
+      id:"hn-lot-"+h.objectID,
+      title:h.title,
+      summary:`${h.points||0} pts · ${h.num_comments||0} comments`,
+      url:h.url||`https://news.ycombinator.com/item?id=${h.objectID}`,
+      timestamp:h.created_at,
+      source:"Hacker News",
+      sourceType:"HN",
+      tag:"TECH",
+      country:"Global",
+      score:h.points||0,
+      comments:h.num_comments||0,
+      upvoteRatio:0.8,
+    }));
+  }catch{return[];}
+}
+
+async function fetchWikiLottery(topic){
+  try{
+    const d=await fetch(
+      `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(topic)}`,
+      {signal:AbortSignal.timeout(5000)}
+    ).then(r=>r.json());
+    if(!d.extract)return null;
+    return{
+      id:"wiki-lot-"+topic.replace(/\s+/g,"-"),
+      title:d.title,
+      summary:d.extract.slice(0,280),
+      url:d.content_urls?.desktop?.page||"",
+      timestamp:new Date().toISOString(),
+      source:"Wikipedia",
+      sourceType:"Wiki",
+      tag:"INTEL",
+      country:topic.toLowerCase().includes("uae")||topic.toLowerCase().includes("dubai")?"UAE":"Global",
+      score:0,comments:0,upvoteRatio:1,
+    };
+  }catch{return null;}
+}
+
+// ── Uncertainty calculation ────────────────────────────────────────────────────
+function calcUncertainty(items){
+  if(items.length<5)return 78;
+  const moodCounts={HOPEFUL:0,CYNICAL:0,ANXIOUS:0,NEUTRAL:0};
+  const ratios=[];
+  for(const item of items){
+    const mood=classifyLottery(item.title+" "+(item.summary||""));
+    moodCounts[mood]++;
+    if(item.upvoteRatio>0)ratios.push(item.upvoteRatio);
   }
+  const total=items.length;
+  const dominant=Math.max(...Object.values(moodCounts));
+  const dominance=dominant/total;
+  const avgRatio=ratios.length?ratios.reduce((a,b)=>a+b,0)/ratios.length:0.6;
+  const ratioVariance=ratios.length?ratios.reduce((acc,r)=>acc+Math.pow(r-avgRatio,2),0)/ratios.length:0.2;
+  // Low dominance + high variance = high uncertainty
+  const raw=(1-dominance)*55+ratioVariance*25+(items.length<10?20:0);
+  return Math.min(99,Math.max(1,Math.round(raw)));
+}
 
-  const results = [];
-  const seen = new Set();
+export default async function handler(req,res){
+  if(req.method!=="GET"&&req.method!=="POST")return res.status(405).json({error:"Method not allowed"});
 
-  // ── 1. ME Reddit — search each ME sub for lottery/lucky content ──────────────
-  await Promise.allSettled(ME_LOTTERY_QUERIES.map(async ({ sub, query, country, tag }) => {
-    try {
-      // Use Reddit search if query provided, otherwise hot posts
-      const url = query
-        ? `https://www.reddit.com/r/${sub}/search.json?q=${encodeURIComponent(query)}&restrict_sr=1&sort=top&t=month&limit=15`
-        : `https://www.reddit.com/r/${sub}/hot.json?limit=10`;
+  const results=[];
+  const seen=new Set();
 
-      const r = await fetch(url, {
-        headers: { "User-Agent": "OpenEye-OSINT/2.0-lottery" },
-        signal: AbortSignal.timeout(6000),
-      });
-      if (!r.ok) return;
-      const d = await r.json();
-      const posts = d?.data?.children || [];
+  // Run all sources in parallel
+  const [mastoResults,lemmyResults,hnResults,wikiResults]=await Promise.all([
+    Promise.allSettled(MASTO_LOT_TAGS.map(({tag})=>fetchMastodonLotteryTag(tag))),
+    Promise.allSettled(LEMMY_LOT_QUERIES.map(q=>fetchLemmyLottery(q))),
+    Promise.allSettled(HN_LOT_QUERIES.map(q=>fetchHNLottery(q))),
+    Promise.allSettled(WIKI_TOPICS.map(t=>fetchWikiLottery(t))),
+  ]);
 
-      for (const { data: p } of posts) {
-        if (!p.title || p.stickied || seen.has(p.id)) continue;
-        // For ME subs without query, filter to lottery-relevant titles
-        if (!query) {
-          const relevant = [...HOPEFUL, ...NEUTRAL, "lucky", "win", "prize", "jackpot", "lottery", "raffle"];
-          if (!relevant.some(w => p.title.toLowerCase().includes(w))) continue;
-        }
-        seen.add(p.id);
-        results.push({
-          id:          "reddit-" + p.id,
-          title:       p.title,
-          summary:     (p.selftext || "").slice(0, 200) || `↑${p.score} · 💬${p.num_comments}`,
-          url:         "https://reddit.com" + p.permalink,
-          timestamp:   new Date(p.created_utc * 1000).toISOString(),
-          source:      "r/" + sub,
-          sourceType:  "Reddit",
-          tag,
-          country,
-          score:       p.score,
-          comments:    p.num_comments,
-          upvoteRatio: p.upvote_ratio || 0.7,
-        });
-      }
-    } catch { /* skip */ }
-  }));
+  for(const r of mastoResults){if(r.status==="fulfilled")results.push(...r.value);}
+  for(const r of lemmyResults){if(r.status==="fulfilled")results.push(...r.value);}
+  for(const r of hnResults){if(r.status==="fulfilled")results.push(...r.value);}
+  for(const r of wikiResults){if(r.status==="fulfilled"&&r.value)results.push(r.value);}
 
-  // ── 2. HN — ME lottery/gambling queries ──────────────────────────────────────
-  const since30d = Math.floor(Date.now() / 1000) - 30 * 24 * 3600;
-  await Promise.allSettled(HN_ME_QUERIES.map(async (q) => {
-    try {
-      const d = await fetch(
-        `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(q)}&tags=story&hitsPerPage=5&numericFilters=created_at_i>${since30d}`,
-        { signal: AbortSignal.timeout(4000) }
-      ).then(r => r.json());
-      for (const h of (d.hits || [])) {
-        if (!h.title || seen.has(h.objectID)) continue;
-        seen.add(h.objectID);
-        results.push({
-          id:          "hn-lot-" + h.objectID,
-          title:       h.title,
-          summary:     `${h.points||0} pts · ${h.num_comments||0} comments`,
-          url:         h.url || `https://news.ycombinator.com/item?id=${h.objectID}`,
-          timestamp:   h.created_at,
-          source:      "Hacker News",
-          sourceType:  "HN",
-          tag:         "TECH",
-          country:     "Global",
-          score:       h.points || 0,
-          comments:    h.num_comments || 0,
-          upvoteRatio: 0.8,
-        });
-      }
-    } catch { /* skip */ }
-  }));
+  // Dedup + sort
+  const unique=results.filter(i=>{if(!i.id||seen.has(i.id))return false;seen.add(i.id);return true;});
+  unique.sort((a,b)=>(b.score-a.score)||new Date(b.timestamp)-new Date(a.timestamp));
 
-  // ── 3. Wikipedia — ME lottery context ────────────────────────────────────────
-  await Promise.allSettled(WIKI_TOPICS.map(async (topic) => {
-    try {
-      const d = await fetch(
-        `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(topic)}`,
-        { signal: AbortSignal.timeout(4000) }
-      ).then(r => r.json());
-      if (!d.extract || seen.has("wiki-" + topic)) return;
-      seen.add("wiki-" + topic);
-      results.push({
-        id:          "wiki-lot-" + topic,
-        title:       d.title,
-        summary:     d.extract.slice(0, 280),
-        url:         d.content_urls?.desktop?.page || "",
-        timestamp:   new Date().toISOString(),
-        source:      "Wikipedia",
-        sourceType:  "Wiki",
-        tag:         "INTEL",
-        country:     topic.toLowerCase().includes("uae") || topic.toLowerCase().includes("dubai") ? "UAE" : "Global",
-        score:       0,
-        comments:    0,
-        upvoteRatio: 1,
-      });
-    } catch { /* skip */ }
-  }));
-
-  // ── Sort by score desc then recency ──────────────────────────────────────────
-  results.sort((a, b) => (b.score - a.score) || (new Date(b.timestamp) - new Date(a.timestamp)));
-
-  // ── Compute stats ─────────────────────────────────────────────────────────────
-  const moodDist = { HOPEFUL: 0, CYNICAL: 0, ANXIOUS: 0, NEUTRAL: 0 };
-  for (const item of results) {
-    const mood = classifyLottery(item.title + " " + (item.summary || ""));
+  // Mood distribution
+  const moodDist={HOPEFUL:0,CYNICAL:0,ANXIOUS:0,NEUTRAL:0};
+  for(const item of unique){
+    const mood=classifyLottery(item.title+" "+(item.summary||""));
     moodDist[mood]++;
   }
+  const dominantMood=Object.entries(moodDist).sort((a,b)=>b[1]-a[1])[0]?.[0]||"NEUTRAL";
+  const ratios=unique.filter(r=>r.upvoteRatio>0).map(r=>r.upvoteRatio);
+  const avgUpvoteRatio=ratios.length?Math.round(ratios.reduce((a,b)=>a+b,0)/ratios.length*100):60;
+  const uncertaintyScore=calcUncertainty(unique);
+  const sourceDiversity=new Set(unique.map(r=>r.sourceType)).size;
 
-  const totalSignals    = results.length;
-  const sourceDiversity = new Set(results.map(r => r.source)).size;
-  const meSignals       = results.filter(r => r.tag === "ME-LOTTERY" || r.tag === "EXPAT").length;
-  const ratios          = results.filter(r => r.upvoteRatio > 0).map(r => r.upvoteRatio);
-  const avgUpvoteRatio  = ratios.length ? Math.round((ratios.reduce((a,b)=>a+b,0)/ratios.length)*100) : 60;
-  const uncertaintyScore = calcUncertainty(results);
-
-  const dominantMood = Object.entries(moodDist).sort((a,b)=>b[1]-a[1])[0]?.[0] || "NEUTRAL";
-
-  res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=600");
+  res.setHeader("Cache-Control","s-maxage=300,stale-while-revalidate=600");
   return res.status(200).json({
-    items: results,
-    meta: {
-      totalSignals,
-      meSignals,
-      sourceDiversity,
-      avgUpvoteRatio,
-      uncertaintyScore,
-      dominantMood,
-      moodDist,
-    },
+    items:unique,
+    meta:{totalSignals:unique.length,sourceDiversity,avgUpvoteRatio,uncertaintyScore,dominantMood,moodDist},
   });
 }

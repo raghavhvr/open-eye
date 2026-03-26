@@ -20,6 +20,9 @@
     },
     "api/lottery.js": {
       "maxDuration": 30
+    },
+    "api/social.js": {
+      "maxDuration": 30
     }
   }
 }

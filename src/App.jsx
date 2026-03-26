@@ -121,17 +121,17 @@ async function fetchRSS(src){
     country:detectCountry(txt),section:classify(txt),sentiment:senti(txt),score:0,comments:0};});}
   catch{return[];}
 }
-async function fetchRedditSub({sub,country,tag}){
-  try{const r=await fetch(`https://www.reddit.com/r/${sub}/top.json?limit=50&t=month`,
-    {headers:{"User-Agent":"HorizonSentinel-OSINT/3.0"},signal:AbortSignal.timeout(7000)});
-  if(!r.ok)return[];const d=await r.json();
-  return(d?.data?.children||[]).filter(({data:p})=>p.title&&!p.stickied).map(({data:p})=>({
-    id:"reddit-"+p.id,title:p.title,summary:(p.selftext||"").slice(0,220)||`↑${p.score} · 💬${p.num_comments}`,
-    url:"https://reddit.com"+p.permalink,timestamp:new Date(p.created_utc*1000).toISOString(),
-    source:`r/${sub}`,sourceType:"Reddit",tag,country,
-    section:classify(p.title+" "+(p.selftext||"")),sentiment:senti(p.title+" "+(p.selftext||"")),
-    score:p.score,comments:p.num_comments}));}
-  catch{return[];}
+// fetchSocialSignals — calls /api/social (Mastodon + Lemmy, no Reddit auth needed)
+async function fetchSocialSignals(){
+  try{
+    const res=await fetch("/api/social",{method:"GET",signal:AbortSignal.timeout(30000)});
+    if(!res.ok)throw new Error(`/api/social returned ${res.status}`);
+    const d=await res.json();
+    return{articles:d.articles||[],meta:d.meta||{}};
+  }catch(e){
+    console.warn("Social fetch failed:",e.message);
+    return{articles:[],meta:{status:{mastodon:0,lemmy:0,total:0}}};
+  }
 }
 async function fetchHackerNews(){
   const since=Math.floor(Date.now()/1000)-7*24*3600;
@@ -230,43 +230,75 @@ function FeedCard({item,lotteryMode}){
 // ─── MENA SVG MAP ─────────────────────────────────────────────────────────────
 // Proper SVG map using actual geographic positions — no background image needed
 function MENAMap({items,onCountryClick}){
-  const cData=(cid)=>{const ci=items.filter(i=>i.country===cid);if(!ci.length)return{count:0,col:T.outVar,dominant:"NEUTRAL"};
+  const cData=(cid)=>{
+    const ci=items.filter(i=>i.country===cid);
+    if(!ci.length)return{count:0,col:T.outVar,dominant:"NEUTRAL"};
     const cnts={};ci.forEach(i=>{const l=i.sentiment?.label||"NEUTRAL";cnts[l]=(cnts[l]||0)+1;});
     const dom=Object.entries(cnts).sort((a,b)=>b[1]-a[1])[0]?.[0]||"NEUTRAL";
     const col=dom==="CRITICAL"?T.error:dom==="WARNING"?T.tertiary:dom==="POSITIVE"||dom==="STABLE"?T.secondary:T.primary;
-    return{count:ci.length,col,dominant:dom};};
+    return{count:ci.length,col,dominant:dom};
+  };
+  // SVG map: viewBox 0 0 1000 600, MENA region occupies roughly x:150-800, y:80-480
+  // Country centroids in SVG space
+  const SVG_COUNTRIES=[
+    {id:"Morocco",   cx:155,cy:195},{id:"Algeria",    cx:220,cy:200},{id:"Tunisia",    cx:270,cy:185},
+    {id:"Libya",     cx:310,cy:220},{id:"Egypt",      cx:385,cy:255},{id:"Sudan",      cx:430,cy:330},
+    {id:"Lebanon",   cx:490,cy:195},{id:"Palestine",  cx:485,cy:215},{id:"Israel",     cx:482,cy:220},
+    {id:"Jordan",    cx:500,cy:235},{id:"Syria",      cx:510,cy:190},{id:"Iraq",       cx:545,cy:210},
+    {id:"Iran",      cx:610,cy:190},{id:"Kuwait",     cx:568,cy:245},{id:"Bahrain",    cx:585,cy:270},
+    {id:"Qatar",     cx:590,cy:280},{id:"Saudi Arabia",cx:540,cy:290},{id:"UAE",       cx:615,cy:285},
+    {id:"Oman",      cx:645,cy:305},{id:"Yemen",      cx:560,cy:340},
+  ];
   return(
-    <div style={{position:"relative",width:"100%",height:280,background:`linear-gradient(135deg,${T.base} 0%,${T.low} 50%,${T.base} 100%)`,borderRadius:6,overflow:"hidden",border:`1px solid ${T.outVar}22`}}>
-      {/* Grid lines for geographic feel */}
-      <svg style={{position:"absolute",inset:0,opacity:0.06}} width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none">
-        {[10,20,30,40,50,60,70,80,90].map(v=><>
-          <line key={`h${v}`} x1="0" y1={v} x2="100" y2={v} stroke={T.primary} strokeWidth="0.3"/>
-          <line key={`v${v}`} x1={v} y1="0" x2={v} y2="100" stroke={T.primary} strokeWidth="0.3"/>
-        </>)}
+    <div style={{width:"100%",borderRadius:6,overflow:"hidden",border:`1px solid ${T.outVar}22`,background:T.base,position:"relative"}}>
+      <svg width="100%" viewBox="0 0 800 420" style={{display:"block"}}>
+        {/* Ocean background */}
+        <rect width="800" height="420" fill="#060e20"/>
+        {/* Grid lines */}
+        {[100,200,300,400,500,600,700].map(x=><line key={"v"+x} x1={x} y1={0} x2={x} y2={420} stroke="#b4c5ff" strokeWidth="0.3" opacity="0.08"/>)}
+        {[70,140,210,280,350].map(y=><line key={"h"+y} x1={0} y1={y} x2={800} y2={y} stroke="#b4c5ff" strokeWidth="0.3" opacity="0.08"/>)}
+        {/* Land mass: rough MENA region silhouette */}
+        <path d="M130,160 L170,140 L230,135 L290,130 L340,145 L380,155 L420,150 L450,160 L480,155 L520,145 L560,140 L610,135 L660,145 L700,160 L720,180 L730,210 L720,250 L700,280 L680,310 L660,330 L630,340 L600,350 L570,360 L550,370 L530,375 L510,360 L490,345 L470,340 L450,360 L430,370 L400,365 L370,350 L350,330 L320,310 L290,300 L260,290 L230,280 L200,270 L170,250 L150,230 L135,210 Z"
+          fill="#131b2e" stroke="#b4c5ff" strokeWidth="0.5" opacity="0.6"/>
+        {/* North Africa coast detail */}
+        <path d="M130,160 L150,145 L180,138 L220,132 L270,130 L310,138 L350,148 L390,152 L420,148 L450,155"
+          fill="none" stroke="#4edea3" strokeWidth="0.8" opacity="0.3"/>
+        {/* Arabian Peninsula highlight */}
+        <path d="M530,200 L560,190 L610,188 L650,195 L680,220 L700,260 L690,300 L670,330 L640,345 L610,350 L580,360 L560,368 L545,355 L530,330 L520,300 L515,270 L520,240 L525,215 Z"
+          fill="#003188" opacity="0.25" stroke="#b4c5ff" strokeWidth="0.5"/>
+        {/* Mediterranean sea label */}
+        <text x="280" y="115" fill="#b4c5ff" fontSize="8" opacity="0.3" fontFamily="Inter" textAnchor="middle">MEDITERRANEAN</text>
+        <text x="650" y="400" fill="#b4c5ff" fontSize="8" opacity="0.3" fontFamily="Inter" textAnchor="middle">ARABIAN SEA</text>
+        <text x="700" y="180" fill="#b4c5ff" fontSize="7" opacity="0.2" fontFamily="Inter">CASPIAN</text>
+        {/* Country dots */}
+        {SVG_COUNTRIES.map(({id,cx,cy})=>{
+          const cd=cData(id);
+          const r=cd.count>12?10:cd.count>5?8:cd.count>0?6:4;
+          const op=cd.count>0?0.95:0.3;
+          return(
+            <g key={id} onClick={()=>onCountryClick&&onCountryClick(id)} style={{cursor:"pointer"}} opacity={op}>
+              {/* Pulse ring for active countries */}
+              {cd.count>0&&<circle cx={cx} cy={cy} r={r+4} fill="none" stroke={cd.col} strokeWidth="1" opacity="0.3"/>}
+              <circle cx={cx} cy={cy} r={r} fill={cd.col}
+                style={{filter:`drop-shadow(0 0 ${r}px ${cd.col}aa)`,transition:"all 0.4s"}}/>
+              {cd.count>0&&<text x={cx} y={cy+r+10} textAnchor="middle" fill={T.onVar} fontSize="7" fontFamily="Inter" fontWeight="700" opacity="0.85">
+                {COUNTRY_MAP[id]?.label||id}
+              </text>}
+            </g>
+          );
+        })}
+        {/* Legend */}
+        <g transform="translate(10,390)">
+          <text x="0" y="0" fill={T.onSurf} fontSize="9" fontFamily="Manrope" fontWeight="800">MENA Signal Map</text>
+          {[[T.error,"Critical",70],[T.tertiary,"Warning",120],[T.secondary,"Stable",170],[T.primary,"Active",215]].map(([col,l,ox])=>(
+            <g key={l} transform={`translate(${ox},0)`}>
+              <circle cx="0" cy="-3" r="4" fill={col}/>
+              <text x="7" y="0" fill={T.onVar} fontSize="7" fontFamily="Inter" fontWeight="700">{l}</text>
+            </g>
+          ))}
+        </g>
+        <text x="790" y="15" textAnchor="end" fill={T.onVar} fontSize="7" fontFamily="Inter" opacity="0.5">Click a hub to drill down</text>
       </svg>
-      {/* Subtle region glow */}
-      <div style={{position:"absolute",left:"45%",top:"42%",width:"30%",height:"35%",borderRadius:"50%",background:`radial-gradient(ellipse,${T.priCont}40 0%,transparent 70%)`,transform:"translateX(-50%)"}}/>
-      {/* Country dots */}
-      {MENA_COUNTRIES.filter(c=>c.id!=="Regional").map(c=>{
-        const cd=cData(c.id);
-        const sz=cd.count>12?16:cd.count>5?12:cd.count>0?9:6;
-        const opacity=cd.count>0?0.95:0.35;
-        return(
-          <div key={c.id} onClick={()=>onCountryClick&&onCountryClick(c.id)}
-            title={`${c.flag} ${c.id}: ${cd.count} signals (${cd.dominant})`}
-            style={{position:"absolute",left:`${c.x}%`,top:`${c.y}%`,transform:"translate(-50%,-50%)",cursor:"pointer",zIndex:10,opacity}}>
-            <div style={{width:sz,height:sz,borderRadius:"50%",background:cd.col,boxShadow:`0 0 ${sz*1.5}px ${cd.col}99`,border:`1px solid ${cd.col}88`,transition:"all 0.3s"}}/>
-            {cd.count>3&&<div style={{position:"absolute",top:sz+3,left:"50%",transform:"translateX(-50%)",whiteSpace:"nowrap",fontSize:7,color:T.onVar,fontWeight:700,pointerEvents:"none",background:`${T.base}cc`,padding:"1px 3px",borderRadius:2}}>{c.label}</div>}
-          </div>
-        );
-      })}
-      {/* Legend */}
-      <div style={{position:"absolute",bottom:10,left:14,display:"flex",gap:12,alignItems:"center"}}>
-        <span style={{fontFamily:"Manrope",fontSize:11,fontWeight:800,color:T.onSurf}}>MENA Signal Map</span>
-        {[[T.error,"Critical"],[T.tertiary,"Warning"],[T.secondary,"Stable"],[T.primary,"Active"]].map(([col,l])=>(
-          <div key={l} style={{display:"flex",alignItems:"center",gap:3}}><div style={{width:6,height:6,borderRadius:"50%",background:col,boxShadow:`0 0 4px ${col}88`}}/><span style={{fontSize:8,color:T.onVar,fontWeight:700}}>{l}</span></div>))}
-      </div>
-      <div style={{position:"absolute",top:10,right:14,fontSize:8,color:`${T.onVar}88`,fontWeight:600}}>Click a hub to drill down</div>
     </div>
   );
 }
@@ -283,6 +315,7 @@ export default function App(){
   const[lotteryFilter,setLotteryFilter]=useState("ALL");
   const[srcStatuses,setSrcStatuses]=useState({});
   const[redditStatus,setRedditStatus]=useState({});
+  const[socialMeta,setSocialMeta]=useState({});
   const[lastRefresh,setLastRefresh]=useState(null);
   const[pulseHist,setPulseHist]=useState([50,52,48,55,60,58,62]);
   const[weather,setWeather]=useState(null);
@@ -314,12 +347,23 @@ export default function App(){
     if(unique.length>5){setBriefLoading(true);fetchGemini(unique,"intelligence").then(b=>{setBrief(b);setBriefLoading(false);});}
   },[]);
 
-  const loadReddit=useCallback(async()=>{
-    setRedditLoading(true);const all=[],statuses={};
-    for(const sub of REDDIT_SUBS){const posts=await fetchRedditSub(sub);statuses[sub.sub]=posts.length>0?"active":"error";all.push(...posts);}
-    all.sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
-    const seen=new Set();const unique=all.filter(i=>{if(seen.has(i.id))return false;seen.add(i.id);return true;});
-    setRedditItems(unique);setRedditStatus(statuses);setRedditLoading(false);
+  const loadSocial=useCallback(async()=>{
+    setRedditLoading(true);
+    const{articles,meta}=await fetchSocialSignals();
+    articles.sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
+    setRedditItems(articles);
+    // Build status map from meta
+    const statuses={};
+    if(meta?.status){
+      const s=meta.status;
+      // Mark all sources as active/error based on total
+      ['UAE','saudiarabia','qatar','Kuwait','jordan','oman','bahrain','lebanon','iraq','egypt','MiddleEast','Arabs'].forEach(sub=>{
+        statuses[sub]=s.total>0?"active":"error";
+      });
+    }
+    setRedditStatus(statuses);
+    setSocialMeta(meta||{});
+    setRedditLoading(false);
   },[]);
 
   const loadLottery=useCallback(async()=>{
@@ -338,19 +382,19 @@ export default function App(){
       if(!data.ok)throw new Error(data.error||"Ingest failed");
       const existIds=new Set([...items,...redditItems].map(i=>i.id));
       const fresh=(data.articles||[]).filter(a=>!existIds.has(a.id));
-      setItems(prev=>{const m=[...prev,...fresh.filter(a=>a.sourceType!=="Reddit")].sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));const s=new Set();return m.filter(i=>{if(s.has(i.id))return false;s.add(i.id);return true;});});
-      setRedditItems(prev=>{const m=[...prev,...fresh.filter(a=>a.sourceType==="Reddit")].sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));const s=new Set();return m.filter(i=>{if(s.has(i.id))return false;s.add(i.id);return true;});});
-      if(data.sourceHealth){const ns={};(data.sourceHealth.rss||[]).forEach(s=>{ns[s.id]=s.status;});if(data.sourceHealth.hn)ns.hackernews=data.sourceHealth.hn.status;setSrcStatuses(p=>({...p,...ns}));const nr={};(data.sourceHealth.reddit||[]).forEach(s=>{nr[s.sub]=s.status;});setRedditStatus(p=>({...p,...nr}));}
+      // Bulk ingest feeds RSS+HN into main feed; social goes via /api/social separately
+      setItems(prev=>{const m=[...prev,...fresh].sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));const s=new Set();return m.filter(i=>{if(s.has(i.id))return false;s.add(i.id);return true;});});
+      if(data.sourceHealth){const ns={};(data.sourceHealth.rss||[]).forEach(s=>{ns[s.id]=s.status;});if(data.sourceHealth.hn)ns.hackernews=data.sourceHealth.hn.status;setSrcStatuses(p=>({...p,...ns}));}
       setBulkMeta(data.meta);setBulkProgress({stage:"Done!",pct:100});
     }catch(e){setBulkError(e.message);}
     finally{setTimeout(()=>{setBulkLoading(false);setBulkProgress({stage:"",pct:0});},1800);}
   },[items,redditItems]);
 
   useEffect(()=>{
-    loadMain();loadReddit();loadLottery();
-    timerRef.current=setInterval(()=>{loadMain();loadReddit();loadLottery();},5*60*1000);
+    loadMain();loadSocial();loadLottery();
+    timerRef.current=setInterval(()=>{loadMain();loadSocial();loadLottery();},5*60*1000);
     return()=>clearInterval(timerRef.current);
-  },[loadMain,loadReddit,loadLottery]);
+  },[loadMain,loadSocial,loadLottery]);
 
   const allItems=[...items,...redditItems].sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
   const pScore=calcPulse(allItems);
@@ -477,7 +521,7 @@ export default function App(){
 
         {/* Refresh */}
         <div style={{padding:"10px 14px",borderTop:`1px solid ${T.outVar}18`}}>
-          <button onClick={()=>{loadMain();loadReddit();loadLottery();}} disabled={loading}
+          <button onClick={()=>{loadMain();loadSocial();loadLottery();}} disabled={loading}
             style={{width:"100%",background:`linear-gradient(135deg,${T.priCont},${T.primary}33)`,border:`1px solid ${T.primary}33`,color:T.primary,borderRadius:5,padding:"7px",fontSize:11,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>
             <span style={{fontSize:12,...(loading?{animation:"spin 1s linear infinite",display:"inline-block"}:{})}}>⟳</span>
             {loading?"Ingesting…":"Refresh All"}
@@ -498,9 +542,9 @@ export default function App(){
             </nav>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:12}}>
-            <div style={{background:T.low,borderRadius:4,padding:"0 10px",display:"flex",alignItems:"center",gap:6,height:30,maxWidth:280,overflow:"hidden"}}>
-              <span style={{fontSize:8,background:`${T.errCont}22`,color:T.error,padding:"2px 6px",borderRadius:3,fontWeight:800,flexShrink:0}}>● LIVE</span>
-              <span className="ticker-txt" style={{fontSize:10,color:T.onVar}}>{allItems.slice(0,6).map(i=>i.title).join("   ·   ")||"Loading…"}</span>
+            <div style={{flex:1,margin:"0 16px",minWidth:0,background:T.low,borderRadius:4,padding:"0 10px",display:"flex",alignItems:"center",gap:8,height:30,overflow:"hidden"}}>
+              <span style={{fontSize:9,background:`${T.errCont}33`,color:T.error,padding:"2px 7px",borderRadius:3,fontWeight:800,flexShrink:0,border:`1px solid ${T.error}44`}}>● LIVE</span>
+              <span className="ticker-txt" style={{fontSize:10,color:T.onVar}}>{allItems.length>0?allItems.slice(0,8).map(i=>i.title).join("   ·   "):"Ingesting signals…"}</span>
             </div>
             <span style={{fontSize:10,color:T.onVar}}>{allItems.length} signals</span>
             <span style={{fontSize:9,color:T.lottery,fontWeight:700,background:`${T.lottery}22`,padding:"2px 7px",borderRadius:8}}>🎰 {lotteryItems.length}</span>
@@ -647,16 +691,25 @@ export default function App(){
             <div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:22}}>
                 <div>
-                  <div style={{fontSize:9,color:T.onVar,textTransform:"uppercase",letterSpacing:".2em",fontWeight:700,marginBottom:5}}>Public JSON · No Auth Required</div>
+                  <div style={{fontSize:9,color:"#6364ff",textTransform:"uppercase",letterSpacing:".2em",fontWeight:700,marginBottom:5}}>Mastodon + Lemmy · No Auth Required</div>
                   <h1 style={{fontFamily:"Manrope",fontSize:30,fontWeight:900,letterSpacing:"-.5px"}}>Social Intelligence Pulse</h1>
-                  <p style={{color:T.onVar,fontSize:12,marginTop:5}}>{redditItems.length} posts · {REDDIT_SUBS.length} ME subreddits · reddit.com/r/sub.json</p>
+                  <p style={{color:T.onVar,fontSize:12,marginTop:5}}>{redditItems.length} signals · Mastodon hashtags + Lemmy federated search · all open APIs</p>
                 </div>
-                <div style={{background:T.low,borderRadius:5,padding:"12px 16px",display:"flex",flexWrap:"wrap",gap:5,maxWidth:400}}>
-                  {REDDIT_SUBS.map(s=>(<span key={s.sub} style={{fontSize:9,padding:"2px 6px",borderRadius:3,fontWeight:700,background:redditStatus[s.sub]==="active"?`${T.secCont}25`:`${T.errCont}25`,color:redditStatus[s.sub]==="active"?T.secondary:T.error}}>{s.flag} r/{s.sub}</span>))}
+                <div style={{background:T.low,borderRadius:5,padding:"10px 14px",display:"flex",flexWrap:"wrap",gap:5,maxWidth:500}}>
+                  {[["Mastodon #UAE","UAE"],["Mastodon #Dubai","UAE"],["Mastodon #SaudiArabia","KSA"],["Mastodon #MENA","ME"],["Mastodon #MiddleEast","ME"],["Mastodon #Qatar","QAT"],["Mastodon #Kuwait","KUW"],["Mastodon #Jordan","JOR"],["Mastodon #Gaza","PSE"],["Mastodon #Iran","IRN"],["Mastodon #OPEC","GCC"],["Lemmy: UAE","UAE"],["Lemmy: Saudi","KSA"],["Lemmy: MENA","ME"],["Lemmy: OPEC","GCC"]].map(([label,tag])=>{
+                    const active=redditItems.length>0;
+                    return(<span key={label} style={{fontSize:9,padding:"2px 6px",borderRadius:3,fontWeight:700,background:active?`${T.secCont}25`:`${T.outVar}25`,color:active?T.secondary:T.onVar}}>{label}</span>);
+                  })}
                 </div>
               </div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,marginBottom:18}}>
-                {[["Posts",redditItems.length,"#ff6314"],["Positive",redditItems.filter(i=>["POSITIVE","STABLE"].includes(i.sentiment?.label)).length,T.secondary],["Critical",redditItems.filter(i=>i.sentiment?.label==="CRITICAL").length,T.error],["Avg Score",Math.round(redditItems.reduce((s,i)=>s+i.score,0)/Math.max(redditItems.length,1)),T.tertiary],["Active Subs",Object.values(redditStatus).filter(s=>s==="active").length,T.primary]].map(([l,v,col])=>(
+                {[
+                  ["Signals",redditItems.length,"#a855f7"],
+                  ["Positive",redditItems.filter(i=>["POSITIVE","STABLE"].includes(i.sentiment?.label)).length,T.secondary],
+                  ["Critical",redditItems.filter(i=>i.sentiment?.label==="CRITICAL").length,T.error],
+                  ["Mastodon",redditItems.filter(i=>i.sourceType==="Mastodon").length,"#6364ff"],
+                  ["Lemmy",redditItems.filter(i=>i.sourceType==="Lemmy").length,"#00bc8c"],
+                ].map(([l,v,col])=>(
                   <div key={l} style={{background:T.low,borderRadius:5,padding:"12px 14px",borderTop:`2px solid ${col}`}}>
                     <div style={{fontSize:9,fontWeight:700,letterSpacing:".1em",textTransform:"uppercase",color:T.onVar,marginBottom:4}}>{l}</div>
                     <div style={{fontFamily:"Manrope",fontSize:20,fontWeight:900,color:col}}>{v}</div>
@@ -670,13 +723,27 @@ export default function App(){
                 </div>
                 <div style={{display:"flex",flexDirection:"column",gap:10}}>
                   <div className="card">
-                    <div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:".15em",color:T.onVar,marginBottom:10}}>Posts by Country</div>
-                    {REDDIT_SUBS.filter(s=>s.country!=="Regional").map(s=>{const cnt=redditItems.filter(i=>i.country===s.country).length;return(<div key={s.sub} style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{fontSize:11}}>{s.flag} {s.country}</span><span style={{fontSize:11,fontFamily:"'JetBrains Mono',monospace",color:"#ff6314",fontWeight:700}}>{cnt}</span></div>);})}
+                    <div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:".15em",color:T.onVar,marginBottom:10}}>Signals by Country</div>
+                    {MENA_COUNTRIES.filter(c=>c.id!=="Regional").map(c=>{
+                      const cnt=redditItems.filter(i=>i.country===c.id).length;
+                      if(!cnt)return null;
+                      return(<div key={c.id} style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+                        <span style={{fontSize:11}}>{c.flag} {c.id}</span>
+                        <span style={{fontSize:11,fontFamily:"'JetBrains Mono',monospace",color:"#6364ff",fontWeight:700}}>{cnt}</span>
+                      </div>);
+                    })}
                   </div>
-                  <div style={{background:T.low,borderRadius:5,padding:"12px 14px",borderLeft:"3px solid #ff6314"}}>
-                    <div style={{fontSize:9,fontWeight:800,color:"#ff6314",letterSpacing:".12em",textTransform:"uppercase",marginBottom:5}}>Public JSON</div>
-                    <p style={{fontSize:11,color:T.onVar,lineHeight:1.6}}>No OAuth or key. Appends <code style={{background:T.high,padding:"1px 4px",borderRadius:3,color:"#ff6314"}}>.json</code> to Reddit URLs.</p>
+                  <div style={{background:T.low,borderRadius:5,padding:"12px 14px",borderLeft:"3px solid #6364ff"}}>
+                    <div style={{fontSize:9,fontWeight:800,color:"#6364ff",letterSpacing:".12em",textTransform:"uppercase",marginBottom:5}}>Open Social APIs</div>
+                    <p style={{fontSize:11,color:T.onVar,lineHeight:1.6,marginBottom:6}}><strong style={{color:"#6364ff"}}>Mastodon</strong> — public hashtag timelines, no auth needed.</p>
+                    <p style={{fontSize:11,color:T.onVar,lineHeight:1.6}}><strong style={{color:"#00bc8c"}}>Lemmy</strong> — federated open-source Reddit alternative, free search API.</p>
                   </div>
+                  {socialMeta?.status&&<div style={{background:T.low,borderRadius:5,padding:"10px 14px",borderLeft:"3px solid #00bc8c"}}>
+                    <div style={{fontSize:9,fontWeight:800,color:"#00bc8c",marginBottom:4}}>SOURCE HEALTH</div>
+                    <div style={{fontSize:10,color:T.onVar}}>Mastodon active tags: {socialMeta.status.mastodon||0}</div>
+                    <div style={{fontSize:10,color:T.onVar}}>Lemmy active queries: {socialMeta.status.lemmy||0}</div>
+                    <div style={{fontSize:10,color:T.secondary,fontWeight:700,marginTop:4}}>Total: {socialMeta.status.total||redditItems.length} signals</div>
+                  </div>}
                 </div>
               </div>
             </div>
@@ -946,7 +1013,7 @@ export default function App(){
                 <p style={{color:T.onVar,fontSize:13,marginTop:5,maxWidth:560}}>All open-source ingestion channels for MENA and Lottery intelligence.</p>
               </div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:20}}>
-                {[["News Sources",Object.values(srcStatuses).filter(s=>s==="active").length,T.secondary],["Reddit Active",Object.values(redditStatus).filter(s=>s==="active").length,"#ff6314"],["Total Signals",allItems.length,T.primary],["Lottery Signals",lotteryItems.length,T.lottery]].map(([l,v,col])=>(
+                {[["News Sources",Object.values(srcStatuses).filter(s=>s==="active").length,T.secondary],["Social Active",redditItems.length>0?2:0,"#6364ff"],["Total Signals",allItems.length,T.primary],["Lottery Signals",lotteryItems.length,T.lottery]].map(([l,v,col])=>(
                   <div key={l} style={{background:T.low,borderRadius:5,padding:"12px 14px",borderTop:`2px solid ${col}`}}>
                     <div style={{fontSize:9,fontWeight:700,letterSpacing:".1em",textTransform:"uppercase",color:T.onVar,marginBottom:4}}>{l}</div>
                     <div style={{fontFamily:"Manrope",fontSize:20,fontWeight:900,color:col}}>{v}</div>
@@ -955,7 +1022,7 @@ export default function App(){
               {/* Bulk ingest section */}
               <div className="card" style={{marginBottom:16,border:`1px solid ${T.primary}22`}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                  <div><div style={{fontFamily:"Manrope",fontSize:15,fontWeight:800}}>30-Day Bulk Ingest</div><p style={{fontSize:11,color:T.onVar,marginTop:3}}>7 RSS + 12 Reddit subs × 100 posts + 10 HN queries = up to 1,400 signals server-side via /api/ingest</p></div>
+                  <div><div style={{fontFamily:"Manrope",fontSize:15,fontWeight:800}}>30-Day Bulk Ingest</div><p style={{fontSize:11,color:T.onVar,marginTop:3}}>7 RSS feeds + 10 HN queries + Wikipedia — server-side via /api/ingest. Social: Mastodon + Lemmy via /api/social (live).</p></div>
                   <button onClick={loadBulk} disabled={bulkLoading}
                     style={{padding:"8px 16px",background:bulkLoading?T.high:`linear-gradient(135deg,${T.priCont},${T.primary}55)`,border:`1px solid ${T.primary}33`,color:T.primary,borderRadius:4,fontSize:11,fontWeight:700,cursor:bulkLoading?"not-allowed":"pointer",whiteSpace:"nowrap"}}>
                     {bulkLoading?`${bulkProgress.stage} (${bulkProgress.pct}%)`:"Run Bulk Ingest"}
@@ -971,7 +1038,8 @@ export default function App(){
                 </div>
                 {[
                   ...RSS_SOURCES.map(s=>({id:s.id,name:s.label,type:"RSS",freq:"Live",status:srcStatuses[s.id]||"unknown",cnt:items.filter(i=>i.source===s.label).length,color:T.tertiary})),
-                  ...REDDIT_SUBS.map(s=>({id:"r-"+s.sub,name:`r/${s.sub}`,type:"Reddit",freq:"Live",status:redditStatus[s.sub]||"unknown",cnt:redditItems.filter(i=>i.source===`r/${s.sub}`).length,color:"#ff6314"})),
+                  {id:"mastodon",name:"Mastodon Hashtags (12 ME tags)",type:"Mastodon",freq:"Live",status:redditItems.filter(i=>i.sourceType==="Mastodon").length>0?"active":"unknown",cnt:redditItems.filter(i=>i.sourceType==="Mastodon").length,color:"#6364ff"},
+                  {id:"lemmy",name:"Lemmy Federated Search (9 queries)",type:"Lemmy",freq:"Live",status:redditItems.filter(i=>i.sourceType==="Lemmy").length>0?"active":"unknown",cnt:redditItems.filter(i=>i.sourceType==="Lemmy").length,color:"#00bc8c"},
                   {id:"hn",name:"Hacker News Algolia",type:"HN",freq:"Live",status:srcStatuses.hackernews||"unknown",cnt:items.filter(i=>i.source==="Hacker News").length,color:"#f97316"},
                   {id:"lot",name:"Lottery (Reddit ME + HN)",type:"Lottery",freq:"Live",status:lotteryItems.length>0?"active":"unknown",cnt:lotteryItems.length,color:T.lottery},
                   {id:"gemini",name:"Gemini 2.5 Flash AI",type:"Serverless",freq:"On Demand",status:brief&&!brief._error?"active":"unknown",cnt:0,color:T.primary},

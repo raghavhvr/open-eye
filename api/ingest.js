@@ -112,68 +112,93 @@ const RSS_SOURCES = [
   { id:"national", label:"The National UAE",  url:"https://www.thenationalnews.com/rss/world.xml" },
 ];
 
-const REDDIT_SUBS = [
-  { sub:"UAE",         country:"UAE",          tag:"UAE"  },
-  { sub:"saudiarabia", country:"Saudi Arabia", tag:"KSA"  },
-  { sub:"qatar",       country:"Qatar",        tag:"QAT"  },
-  { sub:"Kuwait",      country:"Kuwait",       tag:"KUW"  },
-  { sub:"jordan",      country:"Jordan",       tag:"JOR"  },
-  { sub:"oman",        country:"Oman",         tag:"OMN"  },
-  { sub:"bahrain",     country:"Bahrain",      tag:"BAH"  },
-  { sub:"lebanon",     country:"Lebanon",      tag:"LEB"  },
-  { sub:"MiddleEast",  country:"Regional",     tag:"ME"   },
-  { sub:"Arabs",       country:"Regional",     tag:"ARAB" },
+// ── Mastodon ME tags ──────────────────────────────────────────────────────────
+const MASTODON_TAGS = [
+  { tag: "UAE",         country: "UAE",          tag_label: "UAE"  },
+  { tag: "Dubai",       country: "UAE",          tag_label: "UAE"  },
+  { tag: "SaudiArabia", country: "Saudi Arabia", tag_label: "KSA"  },
+  { tag: "MENA",        country: "Regional",     tag_label: "ME"   },
+  { tag: "MiddleEast",  country: "Regional",     tag_label: "ME"   },
+  { tag: "Qatar",       country: "Qatar",        tag_label: "QAT"  },
+  { tag: "Kuwait",      country: "Kuwait",       tag_label: "KUW"  },
+  { tag: "Jordan",      country: "Jordan",       tag_label: "JOR"  },
+  { tag: "Gaza",        country: "Palestine",    tag_label: "PSE"  },
+  { tag: "Iran",        country: "Iran",         tag_label: "IRN"  },
+  { tag: "OPEC",        country: "Regional",     tag_label: "GCC"  },
+  { tag: "Israel",      country: "Israel",       tag_label: "ISR"  },
 ];
 
-async function fetchRSSSource(src) {
+// ── Lemmy search queries ──────────────────────────────────────────────────────
+const LEMMY_QUERIES = [
+  { q: "UAE Dubai",        country: "UAE"          },
+  { q: "Saudi Arabia",     country: "Saudi Arabia" },
+  { q: "Qatar Doha",       country: "Qatar"        },
+  { q: "MENA geopolitics", country: "Regional"     },
+  { q: "Middle East",      country: "Regional"     },
+  { q: "OPEC oil",         country: "Regional"     },
+  { q: "Houthi Red Sea",   country: "Yemen"        },
+  { q: "Iran nuclear",     country: "Iran"         },
+  { q: "Israel Gaza",      country: "Palestine"    },
+  { q: "Egypt economy",    country: "Egypt"        },
+];
+
+
+async function fetchMastodonTag({ tag, country }) {
   try {
-    const r = await fetch(src.url, {
-      headers:{ "User-Agent":"Mozilla/5.0 (compatible; HorizonSentinel/3.0)" },
-      signal: AbortSignal.timeout(8000),
-    });
+    const r = await fetch(
+      `https://mastodon.social/api/v1/timelines/tag/${tag}?limit=20`,
+      { headers: { "Accept": "application/json", "User-Agent": "HorizonSentinel-OSINT/3.0" }, signal: AbortSignal.timeout(8000) }
+    );
     if (!r.ok) return [];
-    const xml = await r.text();
-    return parseRSS(xml).map(item => ({
-      id:         item.guid || item.link,
-      title:      item.title,
-      summary:    item.summary,
-      url:        item.link,
-      timestamp:  item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString(),
-      source:     src.label,
-      sourceType: "RSS",
-      tag:        "NEWS",
-      score:      0,
-      comments:   0,
-    }));
+    const posts = await r.json();
+    return posts
+      .filter(p => p.content && !p.reblog)
+      .map(p => {
+        const txt = p.content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+        return {
+          id: "masto-" + p.id,
+          title: txt.slice(0, 160) || `#${tag} signal`,
+          summary: txt.slice(0, 240),
+          url: p.url || "",
+          timestamp: p.created_at,
+          source: `#${tag} (Mastodon)`,
+          sourceType: "Mastodon",
+          tag: tag.toUpperCase(),
+          country,
+          score: p.favourites_count || 0,
+          comments: p.replies_count || 0,
+        };
+      });
   } catch { return []; }
 }
 
-async function fetchRedditSub({ sub, country, tag }) {
+async function fetchLemmyQuery({ q, country }) {
   try {
-    // top.json?t=month gives the top 100 posts of the last 30 days
     const r = await fetch(
-      `https://www.reddit.com/r/${sub}/top.json?limit=100&t=month`,
-      { headers:{ "User-Agent":"HorizonSentinel-OSINT/3.0" }, signal: AbortSignal.timeout(8000) }
+      `https://lemmy.world/api/v3/search?q=${encodeURIComponent(q)}&type_=Posts&sort=TopAll&limit=15`,
+      { signal: AbortSignal.timeout(8000) }
     );
     if (!r.ok) return [];
     const d = await r.json();
-    return (d?.data?.children || [])
-      .filter(({ data:p }) => p.title && !p.stickied)
-      .map(({ data:p }) => ({
-        id:         "reddit-" + p.id,
-        title:      p.title,
-        summary:    (p.selftext || "").slice(0, 240) || `↑ ${p.score} · 💬 ${p.num_comments}`,
-        url:        "https://reddit.com" + p.permalink,
-        timestamp:  new Date(p.created_utc * 1000).toISOString(),
-        source:     `r/${sub}`,
-        sourceType: "Reddit",
-        tag,
+    return (d.posts || []).map(p => {
+      const post = p.post; const counts = p.counts || {};
+      return {
+        id: "lemmy-" + post.id,
+        title: post.name,
+        summary: (post.body || "").slice(0, 220) || `↑${counts.score || 0} · 💬${counts.comments || 0}`,
+        url: post.ap_id || post.url || "",
+        timestamp: post.published,
+        source: `Lemmy`,
+        sourceType: "Lemmy",
+        tag: "SOCIAL",
         country,
-        score:      p.score,
-        comments:   p.num_comments,
-      }));
+        score: counts.score || 0,
+        comments: counts.comments || 0,
+      };
+    });
   } catch { return []; }
 }
+
 
 async function fetchHN30d() {
   const since = Math.floor(Date.now() / 1000) - 30 * 24 * 3600;
@@ -215,18 +240,21 @@ export default async function handler(req, res) {
   const startedAt = Date.now();
 
   // Run all sources in parallel
-  const [rssResults, redditResults, hnItems] = await Promise.all([
+  const [rssResults, mastoResults, lemmyResults, hnItems] = await Promise.all([
     // RSS: all 7 feeds in parallel
     Promise.all(RSS_SOURCES.map(src => fetchRSSSource(src))),
-    // Reddit: all 10 subs in parallel with top-of-month (100 posts each → up to 1,000)
-    Promise.all(REDDIT_SUBS.map(sub => fetchRedditSub(sub))),
-    // HN: 10 MENA queries × 20 results = up to 200 deduplicated stories
+    // Mastodon: 12 ME hashtag timelines (replaces Reddit — 403 from Vercel IPs)
+    Promise.allSettled(MASTODON_TAGS.map(t => fetchMastodonTag(t))),
+    // Lemmy: 10 MENA search queries (federated, open API)
+    Promise.allSettled(LEMMY_QUERIES.map(q => fetchLemmyQuery(q))),
+    // HN: 10 MENA queries × 20 results
     fetchHN30d(),
   ]);
 
   const rawAll = [
     ...rssResults.flat(),
-    ...redditResults.flat(),
+    ...mastoResults.filter(r => r.status === "fulfilled").flatMap(r => r.value),
+    ...lemmyResults.filter(r => r.status === "fulfilled").flatMap(r => r.value),
     ...hnItems,
   ];
 
@@ -264,10 +292,13 @@ export default async function handler(req, res) {
   )));
 
   // Source health
+  const mastoActive = mastoResults.filter(r => r.status === "fulfilled" && r.value.length > 0).length;
+  const lemmyActive = lemmyResults.filter(r => r.status === "fulfilled" && r.value.length > 0).length;
   const sourceHealth = {
-    rss:     rssResults.map((r,i) => ({ id: RSS_SOURCES[i].id, count: r.length, status: r.length > 0 ? "active" : "error" })),
-    reddit:  redditResults.map((r,i) => ({ sub: REDDIT_SUBS[i].sub, count: r.length, status: r.length > 0 ? "active" : "error" })),
-    hn:      { count: hnItems.length, status: hnItems.length > 0 ? "active" : "warn" },
+    rss:      rssResults.map((r,i) => ({ id: RSS_SOURCES[i].id, count: r.length, status: r.length > 0 ? "active" : "error" })),
+    mastodon: { count: mastoActive, active: mastoActive, status: mastoActive > 0 ? "active" : "warn" },
+    lemmy:    { count: lemmyActive, active: lemmyActive, status: lemmyActive > 0 ? "active" : "warn" },
+    hn:       { count: hnItems.length, status: hnItems.length > 0 ? "active" : "warn" },
   };
 
   const elapsedMs = Date.now() - startedAt;
