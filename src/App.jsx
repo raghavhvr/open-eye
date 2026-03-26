@@ -54,9 +54,10 @@ const RSS_SOURCES=[
   {id:"aljazeera",label:"Al Jazeera",        url:"https://www.aljazeera.com/xml/rss/all.xml"},
   {id:"arabnews", label:"Arab News",         url:"https://www.arabnews.com/rss.xml"},
   {id:"guardian", label:"The Guardian",      url:"https://www.theguardian.com/world/rss"},
-  {id:"gulfnews", label:"Gulf News",         url:"https://gulfnews.com/rss/uae"},
-  {id:"national", label:"The National UAE",  url:"https://www.thenationalnews.com/rss/world.xml"},
-  {id:"reuters",  label:"Reuters World",     url:"https://feeds.reuters.com/reuters/topNews"},
+  // Gulf News & Reuters block Vercel IPs — replaced with working ME sources
+  {id:"national", label:"The National UAE",  url:"https://www.thenationalnews.com/arc/outboundfeeds/rss/?outputType=xml"},
+  {id:"mee",      label:"Middle East Eye",   url:"https://www.middleeasteye.net/rss"},
+  {id:"aa",       label:"Anadolu Agency",    url:"https://www.aa.com.tr/en/rss/default?cat=world"},
 ];
 const REDDIT_SUBS=[
   {sub:"UAE",        country:"UAE",          flag:"🇦🇪",tag:"UAE"},
