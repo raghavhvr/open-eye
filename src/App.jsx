@@ -1,808 +1,907 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
-// ── RSS SOURCES ───────────────────────────────────────────────────────────────
-const RSS_SOURCES = [
-  { id: "bbc-me",    label: "BBC Middle East",   url: "https://feeds.bbci.co.uk/news/world/middle_east/rss.xml", tag: "NEWS"     },
-  { id: "aljazeera", label: "Al Jazeera",         url: "https://www.aljazeera.com/xml/rss/all.xml",               tag: "REGIONAL" },
-  { id: "guardian",  label: "The Guardian World", url: "https://www.theguardian.com/world/rss",                   tag: "NEWS"     },
-  { id: "arabnews",  label: "Arab News",          url: "https://www.arabnews.com/rss.xml",                        tag: "REGIONAL" },
-  { id: "ap-world",  label: "AP World News",      url: "https://rsshub.app/apnews/world-news",                    tag: "NEWS"     },
-];
-const WIKI_TOPICS = ["Saudi Arabia","United Arab Emirates","Qatar","OPEC","Energy security","AI regulation"];
-
-// ── COLORS ────────────────────────────────────────────────────────────────────
-const C = {
-  bg:"#0b1326", surface:"#171f33", surfaceHigh:"#222a3d", surfaceHighest:"#2d3449",
-  primary:"#b4c5ff", primaryContainer:"#003188",
-  secondary:"#4edea3", tertiary:"#ffb95f", error:"#ffb4ab",
-  lottery:"#e879f9", lotteryDim:"#7e22ce",  // purple for lottery section
-  onSurface:"#dae2fd", onSurfaceVariant:"#c3c7ce", outline:"#43474d", sidebar:"#131b2e",
+// ─── DESIGN TOKENS — "Strategic Eye" (faithful to DESIGN.md + wireframes) ────
+const T = {
+  base:"#060e20",surface:"#0b1326",low:"#131b2e",mid:"#171f33",
+  high:"#222a3d",highest:"#2d3449",
+  primary:"#b4c5ff",priCont:"#003188",
+  secondary:"#4edea3",secCont:"#00a572",
+  tertiary:"#ffb95f",terCont:"#513100",
+  error:"#ffb4ab",errCont:"#93000a",
+  onSurf:"#dae2fd",onVar:"#c3c7ce",outline:"#8d9198",outVar:"#43474d",
 };
 
-// ── SENTIMENT ─────────────────────────────────────────────────────────────────
-function guessSentiment(text) {
-  const t = (text||"").toLowerCase();
-  const pos = ["growth","surge","record","success","deal","agreement","expands","boost","profit","milestone","launch","win","winner","jackpot","lucky"];
-  const neg = ["crisis","attack","conflict","warning","risk","decline","concern","tension","threat","disruption","sanction","collapse","problem","addiction","loss","scam","fraud"];
-  const p = pos.filter(w=>t.includes(w)).length;
-  const n = neg.filter(w=>t.includes(w)).length;
-  if (n>p+1) return {label:"CRITICAL",color:C.error,          bg:"#93000a22"};
-  if (n>p)   return {label:"WARNING", color:C.tertiary,        bg:"#51310022"};
-  if (p>n)   return {label:"POSITIVE",color:C.secondary,       bg:"#00a57222"};
-  return          {label:"NEUTRAL", color:C.onSurfaceVariant, bg:"#43474d22"};
+// ─── FULL MENA COUNTRY REGISTRY (21 countries, wireframes only had 5) ────────
+const MENA_COUNTRIES = [
+  {id:"UAE",         label:"UAE",  flag:"🇦🇪",group:"GCC",    keywords:["uae","dubai","abu dhabi","emirati","sharjah","ajman"]},
+  {id:"Saudi Arabia",label:"KSA",  flag:"🇸🇦",group:"GCC",    keywords:["saudi","riyadh","jeddah","aramco","ksa","mecca","neom"]},
+  {id:"Qatar",       label:"QAT",  flag:"🇶🇦",group:"GCC",    keywords:["qatar","doha","qatari"]},
+  {id:"Kuwait",      label:"KUW",  flag:"🇰🇼",group:"GCC",    keywords:["kuwait","kuwaiti"]},
+  {id:"Oman",        label:"OMN",  flag:"🇴🇲",group:"GCC",    keywords:["oman","muscat","omani"]},
+  {id:"Bahrain",     label:"BHR",  flag:"🇧🇭",group:"GCC",    keywords:["bahrain","manama"]},
+  {id:"Jordan",      label:"JOR",  flag:"🇯🇴",group:"Levant", keywords:["jordan","amman","jordanian"]},
+  {id:"Lebanon",     label:"LBN",  flag:"🇱🇧",group:"Levant", keywords:["lebanon","beirut","lebanese"]},
+  {id:"Syria",       label:"SYR",  flag:"🇸🇾",group:"Levant", keywords:["syria","damascus","aleppo","syrian"]},
+  {id:"Iraq",        label:"IRQ",  flag:"🇮🇶",group:"Levant", keywords:["iraq","baghdad","iraqi","basra","mosul"]},
+  {id:"Palestine",   label:"PSE",  flag:"🇵🇸",group:"Levant", keywords:["palestine","gaza","west bank","hamas","palestinian"]},
+  {id:"Israel",      label:"ISR",  flag:"🇮🇱",group:"Levant", keywords:["israel","tel aviv","jerusalem","idf"]},
+  {id:"Egypt",       label:"EGY",  flag:"🇪🇬",group:"N.Africa",keywords:["egypt","cairo","egyptian","suez","alexandria"]},
+  {id:"Libya",       label:"LBY",  flag:"🇱🇾",group:"N.Africa",keywords:["libya","tripoli","benghazi","libyan"]},
+  {id:"Tunisia",     label:"TUN",  flag:"🇹🇳",group:"N.Africa",keywords:["tunisia","tunis","tunisian"]},
+  {id:"Algeria",     label:"DZA",  flag:"🇩🇿",group:"N.Africa",keywords:["algeria","algiers","algerian"]},
+  {id:"Morocco",     label:"MAR",  flag:"🇲🇦",group:"N.Africa",keywords:["morocco","rabat","casablanca","moroccan"]},
+  {id:"Sudan",       label:"SDN",  flag:"🇸🇩",group:"N.Africa",keywords:["sudan","khartoum","sudanese"]},
+  {id:"Yemen",       label:"YEM",  flag:"🇾🇪",group:"Other",  keywords:["yemen","sanaa","houthi","yemeni","aden"]},
+  {id:"Iran",        label:"IRN",  flag:"🇮🇷",group:"Other",  keywords:["iran","tehran","iranian","irgc"]},
+  {id:"Regional",    label:"MENA", flag:"🌍", group:"Regional",keywords:["mena","middle east","arab","gulf","gcc"]},
+];
+const COUNTRY_MAP = Object.fromEntries(MENA_COUNTRIES.map(c=>[c.id,c]));
+
+// ─── TOPIC SECTIONS ───────────────────────────────────────────────────────────
+const SECTIONS = {
+  "🚨 Crisis":   {color:"#ef4444",label:"Crisis & Safety",      keywords:["war","conflict","ceasefire","attack","bomb","fire","flood","storm","houthi","missile","casualties","killed","explosion","earthquake","pandemic","virus","outbreak","airstrike","siege","displaced"]},
+  "💼 Economy":  {color:"#ffb95f",label:"Economy & Business",   keywords:["oil","opec","economy","gdp","inflation","market","investment","trade","startup","fund","aramco","adnoc","property","rent","salary","job","tourism","vision 2030","neom","stock","revenue","ipo"]},
+  "🏛️ Politics": {color:"#b4c5ff",label:"Politics & Governance",keywords:["government","minister","policy","election","parliament","diplomacy","sanction","treaty","reform","law","decree","summit","president","prime minister","royal","cabinet","geopolitics","nuclear","coup"]},
+  "🌐 Expat":    {color:"#4edea3",label:"Expat & Daily Life",   keywords:["visa","expat","cost of living","iqama","golden visa","traffic","metro","food","restaurant","transport","immigration","residency","permit","school","healthcare","grocery"]},
+  "🕌 Culture":  {color:"#06b6d4",label:"Culture & Society",    keywords:["ramadan","eid","mosque","religion","entertainment","festival","education","university","women","sports","arts","culture","social","marriage","family","heritage"]},
+  "💻 Tech":     {color:"#8b5cf6",label:"Tech & Innovation",    keywords:["ai","artificial intelligence","startup","tech","innovation","crypto","blockchain","smart city","5g","solar","renewable","fintech","digital","cybersecurity","g42","data center"]},
+};
+
+// ─── RSS SOURCES ──────────────────────────────────────────────────────────────
+const RSS_SOURCES = [
+  {id:"bbc-me",   label:"BBC Middle East", url:"https://feeds.bbci.co.uk/news/world/middle_east/rss.xml"},
+  {id:"aljazeera",label:"Al Jazeera",       url:"https://www.aljazeera.com/xml/rss/all.xml"},
+  {id:"reuters",  label:"Reuters World",    url:"https://feeds.reuters.com/reuters/topNews"},
+  {id:"arabnews", label:"Arab News",        url:"https://www.arabnews.com/rss.xml"},
+  {id:"guardian", label:"The Guardian",     url:"https://www.theguardian.com/world/rss"},
+  {id:"gulfnews", label:"Gulf News",        url:"https://gulfnews.com/rss/uae"},
+  {id:"national", label:"The National UAE", url:"https://www.thenationalnews.com/rss/world.xml"},
+];
+
+// ─── REDDIT SUBS (12 — added Iraq + Egypt vs v3's 10) ────────────────────────
+const REDDIT_SUBS = [
+  {sub:"UAE",         country:"UAE",          flag:"🇦🇪",tag:"UAE"},
+  {sub:"saudiarabia", country:"Saudi Arabia", flag:"🇸🇦",tag:"KSA"},
+  {sub:"qatar",       country:"Qatar",        flag:"🇶🇦",tag:"QAT"},
+  {sub:"Kuwait",      country:"Kuwait",       flag:"🇰🇼",tag:"KUW"},
+  {sub:"jordan",      country:"Jordan",       flag:"🇯🇴",tag:"JOR"},
+  {sub:"oman",        country:"Oman",         flag:"🇴🇲",tag:"OMN"},
+  {sub:"bahrain",     country:"Bahrain",      flag:"🇧🇭",tag:"BAH"},
+  {sub:"lebanon",     country:"Lebanon",      flag:"🇱🇧",tag:"LEB"},
+  {sub:"iraq",        country:"Iraq",         flag:"🇮🇶",tag:"IRQ"},
+  {sub:"egypt",       country:"Egypt",        flag:"🇪🇬",tag:"EGY"},
+  {sub:"MiddleEast",  country:"Regional",     flag:"🌍", tag:"ME"},
+  {sub:"Arabs",       country:"Regional",     flag:"🌍", tag:"ARAB"},
+];
+
+// ─── SENTIMENT ENGINE ─────────────────────────────────────────────────────────
+const POS_W=["growth","surge","record","success","deal","agreement","expands","boost","profit","milestone","launch","stable","peace","recovery","invest","improve","achieve","develop","partnership","innovation","win","hope","progress","rise","benefit","support","signed","approved"];
+const NEG_W=["crisis","attack","conflict","warning","risk","decline","concern","tension","threat","sanction","collapse","killed","explosion","flood","fire","war","bomb","strike","missile","casualties","arrest","ban","shortage","debt","failure","violence","terrorism","hostage","dead","wounded","detained","airstrike","siege"];
+const NEGS=["not","no","never","don't","doesn't","didn't","won't","can't","isn't","aren't","wasn't","without"];
+
+function senti(text){
+  if(!text) return{label:"NEUTRAL",score:0};
+  const w=text.toLowerCase().split(/\W+/);let p=0,n=0;
+  w.forEach((x,i)=>{const neg=NEGS.includes(w[i-1]||"");if(POS_W.includes(x)) neg?n++:p++;if(NEG_W.includes(x)) neg?p++:n++;});
+  if(n>p+1) return{label:"CRITICAL",score:-2};if(n>p) return{label:"WARNING",score:-1};
+  if(p>n+1) return{label:"POSITIVE",score:2};if(p>n) return{label:"STABLE",score:1};
+  return{label:"NEUTRAL",score:0};
+}
+function classify(text){
+  const t=(text||"").toLowerCase();let best="Other",bestN=0;
+  for(const[k,{keywords}]of Object.entries(SECTIONS)){const n=keywords.filter(kw=>t.includes(kw)).length;if(n>bestN){best=k;bestN=n;}}
+  return best;
+}
+function detectCountry(text){
+  const t=(text||"").toLowerCase();
+  for(const c of MENA_COUNTRIES){if(c.id==="Regional")continue;if(c.keywords.some(k=>t.includes(k)))return c.id;}
+  return"Regional";
 }
 
-function guessLotterySentiment(text) {
-  const t = (text||"").toLowerCase();
-  const hopeful  = ["win","winner","jackpot","lucky","dream","hope","million","big","tonight","ticket","chance"];
-  const cynical  = ["scam","fraud","addiction","problem","waste","rigged","never","impossible","sucker","tax","odds"];
-  const anxious  = ["debt","desperate","lost","spent","need","last","only","please","help","poor"];
-  const h = hopeful.filter(w=>t.includes(w)).length;
-  const c = cynical.filter(w=>t.includes(w)).length;
-  const a = anxious.filter(w=>t.includes(w)).length;
-  if (a>1)      return {label:"ANXIOUS",  color:"#f87171", bg:"#7f1d1d22"};
-  if (c>h)      return {label:"CYNICAL",  color:C.tertiary, bg:"#51310022"};
-  if (h>c+1)    return {label:"HOPEFUL",  color:C.lottery,  bg:"#7e22ce22"};
-  return              {label:"NEUTRAL",  color:C.onSurfaceVariant, bg:"#43474d22"};
+// ─── DATA FETCHERS ────────────────────────────────────────────────────────────
+async function fetchRSS(src){
+  try{
+    const res=await fetch("/api/rss",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:src.url})});
+    const d=await res.json();if(!d.items||!Array.isArray(d.items))return[];
+    return d.items.slice(0,8).map(item=>{const txt=item.title+" "+(item.summary||"");return{
+      id:item.guid||item.link,title:item.title,summary:(item.summary||"").slice(0,220),
+      url:item.link,timestamp:new Date(item.pubDate||Date.now()),source:src.label,sourceType:"RSS",
+      tag:"NEWS",country:detectCountry(txt),section:classify(txt),sentiment:senti(txt),score:0,comments:0};});
+  }catch{return[];}
+}
+async function fetchRedditSub({sub,country,flag,tag}){
+  try{
+    const r=await fetch(`https://www.reddit.com/r/${sub}/hot.json?limit=15&t=week`,
+      {headers:{"User-Agent":"StrategicEye-OSINT/4.0"},signal:AbortSignal.timeout(6000)});
+    if(!r.ok)return[];const d=await r.json();
+    return(d?.data?.children||[]).filter(({data:p})=>p.title&&!p.stickied).map(({data:p})=>{
+      const txt=p.title+" "+(p.selftext||"");
+      return{id:"reddit-"+p.id,title:p.title,summary:p.selftext?p.selftext.slice(0,220):`↑ ${p.score} · 💬 ${p.num_comments}`,
+        url:"https://reddit.com"+p.permalink,timestamp:new Date(p.created_utc*1000),
+        source:`r/${sub}`,sourceType:"Reddit",tag,country,flag,
+        section:classify(txt),sentiment:senti(txt),score:p.score,comments:p.num_comments};});
+  }catch{return[];}
+}
+async function fetchHackerNews(){
+  const since=Math.floor(Date.now()/1000)-7*24*3600;
+  const queries=["middle east","OPEC oil","UAE technology","Saudi Arabia","Gulf geopolitics","Israel Gaza","Iran nuclear","Egypt economy","Iraq security"];
+  const all=[],seen=new Set();
+  for(const q of queries){
+    try{const d=await fetch(`https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(q)}&tags=story&hitsPerPage=4&numericFilters=created_at_i>${since}`).then(r=>r.json());
+    for(const h of(d.hits||[])){if(!h.title||seen.has(h.objectID))continue;seen.add(h.objectID);
+      all.push({id:"hn-"+h.objectID,title:h.title,summary:`${h.points||0} pts · ${h.num_comments||0} comments`,
+        url:h.url||`https://news.ycombinator.com/item?id=${h.objectID}`,timestamp:new Date(h.created_at),
+        source:"Hacker News",sourceType:"HN",tag:"TECH",country:detectCountry(h.title),
+        section:classify(h.title),sentiment:senti(h.title),score:h.points||0,comments:h.num_comments||0});}
+    }catch{}
+  }return all;
+}
+async function fetchOpenMeteo(){try{const d=await fetch("https://api.open-meteo.com/v1/forecast?latitude=24.7136&longitude=46.6753&current=temperature_2m,wind_speed_10m&forecast_days=1").then(r=>r.json());return{temp:d.current?.temperature_2m,wind:d.current?.wind_speed_10m};}catch{return null;}}
+async function fetchExchangeRate(){try{const d=await fetch("https://api.exchangerate-api.com/v4/latest/USD").then(r=>r.json());return{sar:d.rates?.SAR,aed:d.rates?.AED,qar:d.rates?.QAR,kwd:d.rates?.KWD,bhd:d.rates?.BHD};}catch{return null;}}
+async function fetchGemini(items){
+  const headlines=items.slice(0,14).map(i=>i.title||i);
+  try{const res=await fetch("/api/brief",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({headlines,mode:"intelligence"})});
+  const data=await res.json();if(!res.ok)return{_error:data.error||"API error"};return data;}catch(e){return{_error:e.message};}
+}
+async function fetchBulkIngest(onProgress){
+  onProgress({stage:"Connecting to ingest pipeline…",pct:5});
+  try{const res=await fetch("/api/ingest",{method:"GET",signal:AbortSignal.timeout(55000)});
+  onProgress({stage:"Fetching RSS · Reddit · HN in parallel…",pct:30});
+  if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.error||`HTTP ${res.status}`);}
+  onProgress({stage:"Classifying sections & analysing sentiment…",pct:70});
+  const data=await res.json();onProgress({stage:"Pre-processing complete — loading…",pct:95});return data;
+  }catch(e){throw new Error(e.message);}
 }
 
-// ── DATA FETCHERS ─────────────────────────────────────────────────────────────
-async function fetchRSS(source) {
-  try {
-    const res = await fetch("/api/rss",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:source.url})});
-    const d = await res.json();
-    if (!d.items||!Array.isArray(d.items)) return [];
-    return d.items.slice(0,5).map(item=>({
-      id:item.guid||item.link, title:item.title,
-      summary:(item.summary||"").slice(0,180), url:item.link,
-      timestamp:new Date(item.pubDate||Date.now()),
-      source:source.label, tag:source.tag,
-      sentiment:guessSentiment(item.title+" "+(item.summary||"")),
-    }));
-  } catch {return [];}
-}
-async function fetchWikipedia(topic) {
-  try {
-    const d = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(topic)}`).then(r=>r.json());
-    return {id:"wiki-"+topic,title:d.title,summary:(d.extract||"").slice(0,200),url:d.content_urls?.desktop?.page||"",timestamp:new Date(),source:"Wikipedia",tag:"INTEL",sentiment:guessSentiment(d.extract||"")};
-  } catch {return null;}
-}
-async function fetchHackerNews(keyword) {
-  try {
-    const since = Math.floor(Date.now()/1000)-7*24*3600;
-    const d = await fetch(`https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(keyword)}&tags=story&hitsPerPage=5&numericFilters=created_at_i>${since}`).then(r=>r.json());
-    return (d.hits||[]).map(h=>({id:"hn-"+h.objectID,title:h.title,summary:`${h.points||0} pts · ${h.num_comments||0} comments`,url:h.url||`https://news.ycombinator.com/item?id=${h.objectID}`,timestamp:new Date(h.created_at),source:"Hacker News",tag:"TECH",sentiment:guessSentiment(h.title)}));
-  } catch {return [];}
-}
-async function fetchOpenMeteo() {
-  try {
-    const d = await fetch("https://api.open-meteo.com/v1/forecast?latitude=24.7136&longitude=46.6753&current=temperature_2m,wind_speed_10m&forecast_days=1").then(r=>r.json());
-    return {temp:d.current?.temperature_2m,wind:d.current?.wind_speed_10m};
-  } catch {return null;}
-}
-async function fetchExchangeRate() {
-  try {
-    const d = await fetch("https://api.exchangerate-api.com/v4/latest/USD").then(r=>r.json());
-    return {sar:d.rates?.SAR,aed:d.rates?.AED,qar:d.rates?.QAR};
-  } catch {return null;}
-}
-async function fetchLotterySignals() {
-  try {
-    const res = await fetch("/api/lottery",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
-    return await res.json();
-  } catch {return {items:[],meta:{totalSignals:0,uncertaintyScore:50,avgUpvoteRatio:50,sourceDiversity:0}};}
-}
-async function fetchBrief(items, mode="intelligence") {
-  const headlines = items.slice(0,15).map(i=>i.title||i);
-  try {
-    const res = await fetch("/api/brief",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({headlines,mode})});
-    const data = await res.json();
-    if (!res.ok) return {_error:data.error||"Unknown error"};
-    return data;
-  } catch(e) {return {_error:e.message};}
-}
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
+const ago=ts=>{const m=Math.floor((Date.now()-new Date(ts))/60000);return m<60?`${m}m ago`:m<1440?`${Math.floor(m/60)}h ago`:`${Math.floor(m/1440)}d ago`;};
+const secColor=s=>SECTIONS[s]?.color||T.outVar;
+const sentColor=l=>l==="CRITICAL"?T.error:l==="WARNING"?T.tertiary:l==="POSITIVE"?T.secondary:l==="STABLE"?T.primary:T.onVar;
+const sentBg=l=>l==="CRITICAL"?`${T.errCont}55`:l==="WARNING"?`${T.terCont}55`:l==="POSITIVE"?`${T.secCont}33`:l==="STABLE"?`${T.priCont}55`:`${T.outVar}33`;
+const srcColor=t=>t==="Reddit"?"#ff6314":t==="RSS"?T.tertiary:t==="HN"?"#f97316":t==="BULK"||t==="AI"?T.primary:T.primary;
+function calcPulse(items){if(!items.length)return 50;const c=items.filter(i=>i.sentiment?.label==="CRITICAL").length,w=items.filter(i=>i.sentiment?.label==="WARNING").length,p=items.filter(i=>i.sentiment?.label==="POSITIVE").length,s=items.filter(i=>i.sentiment?.label==="STABLE").length;return Math.min(98,Math.max(10,Math.round(50+(p*4+s*2)-(c*9+w*4))));}
 
-// ── UTILS ─────────────────────────────────────────────────────────────────────
-function calcPulseScore(items) {
-  if (!items.length) return 50;
-  const c=items.filter(i=>i.sentiment?.label==="CRITICAL").length;
-  const w=items.filter(i=>i.sentiment?.label==="WARNING").length;
-  const p=items.filter(i=>i.sentiment?.label==="POSITIVE").length;
-  return Math.min(99,Math.max(10,Math.round(50+p*3-c*8-w*4)));
+// ─── SVG COMPONENTS ───────────────────────────────────────────────────────────
+function PulseRing({score,loading}){
+  const col=score>65?T.secondary:score>40?T.primary:T.error;
+  const r=46,cx=56,cy=56,circ=2*Math.PI*r;
+  return(<svg width="112" height="112" viewBox="0 0 112 112">
+    <circle cx={cx} cy={cy} r={r+6} fill="none" stroke={`${col}12`} strokeWidth="1"/>
+    <circle cx={cx} cy={cy} r={r} fill="none" stroke={T.mid} strokeWidth="8"/>
+    <circle cx={cx} cy={cy} r={r} fill="none" stroke={col} strokeWidth="8"
+      strokeDasharray={`${(score/100)*circ} ${circ*(1-score/100)}`} strokeDashoffset={circ/4} strokeLinecap="round"
+      style={{transition:"stroke-dasharray 1.2s cubic-bezier(0.4,0,0.2,1)",filter:`drop-shadow(0 0 8px ${col}88)`}}/>
+    {loading?<text x={cx} y={cy+5} textAnchor="middle" fill={T.onVar} fontSize="11">…</text>
+      :<><text x={cx} y={cy-3} textAnchor="middle" fill={col} fontSize="24" fontWeight="900" fontFamily="Manrope">{score}</text>
+        <text x={cx} y={cy+12} textAnchor="middle" fill={T.onVar} fontSize="7" fontWeight="700" letterSpacing="0.15em">PULSE</text></>}
+  </svg>);
 }
-function fmtAge(ts) {
-  const m = Math.floor((Date.now()-new Date(ts))/60000);
-  if (m<60)    return `${m}m ago`;
-  if (m<1440)  return `${Math.floor(m/60)}h ago`;
-  return `${Math.floor(m/1440)}d ago`;
+function Spark({data,color,w=60,h=24}){
+  if(!data||data.length<2)return null;
+  const mn=Math.min(...data),mx=Math.max(...data),rng=mx-mn||1;
+  const pts=data.map((v,i)=>`${(i/(data.length-1))*w},${h-((v-mn)/rng)*h}`).join(" ");
+  return(<svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}><polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 }
-
-// ── SVG COMPONENTS ────────────────────────────────────────────────────────────
-function Sparkline({data,color,h=28}) {
-  if (!data||data.length<2) return null;
-  const W=80,H=h,mn=Math.min(...data),mx=Math.max(...data),r=mx-mn||1;
-  const pts=data.map((v,i)=>`${(i/(data.length-1))*W},${H-((v-mn)/r)*H}`).join(" ");
-  return <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}><polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>;
-}
-
-function PulseRing({score,loading,color}) {
-  const col = color||(score>70?C.secondary:score>45?C.primary:C.error);
-  const r=54,cx=65,cy=65,circ=2*Math.PI*r;
-  return (
-    <svg width="130" height="130" viewBox="0 0 130 130">
-      <circle cx={cx} cy={cy} r={r+8} fill="none" stroke={`${col}15`} strokeWidth="1"/>
-      <circle cx={cx} cy={cy} r={r} fill="none" stroke={C.surface} strokeWidth="10"/>
-      <circle cx={cx} cy={cy} r={r} fill="none" stroke={col} strokeWidth="10"
-        strokeDasharray={`${(score/100)*circ} ${circ*(1-score/100)}`} strokeDashoffset={circ/4}
-        strokeLinecap="round" style={{transition:"stroke-dasharray 1.2s cubic-bezier(0.4,0,0.2,1)",filter:`drop-shadow(0 0 6px ${col}88)`}}/>
-      {loading
-        ? <text x={cx} y={cy+6} textAnchor="middle" fill={C.onSurfaceVariant} fontSize="12" fontFamily="Manrope">…</text>
-        : <><text x={cx} y={cy-4} textAnchor="middle" fill={col} fontSize="28" fontWeight="900" fontFamily="Manrope">{score}</text>
-           <text x={cx} y={cy+14} textAnchor="middle" fill={C.onSurfaceVariant} fontSize="8" fontWeight="700" fontFamily="Manrope" letterSpacing="0.15em">PULSE</text></>
-      }
-    </svg>
-  );
-}
-
-function UncertaintyGauge({score}) {
-  // score 0–99: low=good signal, high=noisy/uncertain
-  const col = score<30?C.secondary:score<60?C.tertiary:C.error;
-  const label = score<30?"CLEAR":score<60?"MIXED":"NOISY";
-  const r=32,cx=40,cy=40,circ=2*Math.PI*r;
-  return (
-    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-      <svg width="80" height="80" viewBox="0 0 80 80">
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke={`${col}22`} strokeWidth="7"/>
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke={col} strokeWidth="7"
-          strokeDasharray={`${(score/100)*circ} ${circ}`} strokeDashoffset={circ/4}
-          strokeLinecap="round" style={{transition:"stroke-dasharray 1s ease"}}/>
-        <text x={cx} y={cx-3} textAnchor="middle" fill={col} fontSize="13" fontWeight="900" fontFamily="Manrope">{score}</text>
-        <text x={cx} y={cx+10} textAnchor="middle" fill={col} fontSize="7" fontWeight="800" fontFamily="Manrope" letterSpacing="0.1em">%</text>
-      </svg>
-      <span style={{fontSize:9,fontWeight:800,color:col,letterSpacing:"0.1em"}}>{label}</span>
-    </div>
-  );
-}
-
-function ThreatGauge({level}) {
-  const pcts={LOW:0.25,MODERATE:0.5,ELEVATED:0.75,CRITICAL:1};
-  const cols={LOW:C.secondary,MODERATE:C.tertiary,ELEVATED:"#ff8c42",CRITICAL:C.error};
-  const pct=pcts[level]||0.5,col=cols[level]||C.tertiary;
-  const r=38,cx=50,cy=50,circ=2*Math.PI*r;
-  return (
-    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-      <svg width="100" height="70" viewBox="0 0 100 80">
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke={C.surface} strokeWidth="8" strokeDasharray={`${circ*0.75} ${circ*0.25}`} strokeDashoffset={-(circ*0.125)} strokeLinecap="round"/>
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke={col} strokeWidth="8"
-          strokeDasharray={`${pct*circ*0.75} ${circ-pct*circ*0.75}`} strokeDashoffset={-(circ*0.125)}
-          strokeLinecap="round" style={{transition:"stroke-dasharray 1s ease,stroke 0.5s ease"}}/>
-        <text x={cx} y={cy+5} textAnchor="middle" fill={col} fontSize="11" fontWeight="800" fontFamily="Manrope">{level||"—"}</text>
-      </svg>
-    </div>
-  );
-}
-
-function MoodOrb({mood}) {
-  const moodMap = {
-    EUPHORIC:  {color:"#e879f9",glow:"#e879f988",icon:"🎰"},
-    HOPEFUL:   {color:"#a78bfa",glow:"#a78bfa88",icon:"🍀"},
-    ANXIOUS:   {color:"#f87171",glow:"#f8717188",icon:"😰"},
-    CYNICAL:   {color:"#ffb95f",glow:"#ffb95f88",icon:"🙄"},
-    RESIGNED:  {color:"#c3c7ce",glow:"#c3c7ce44",icon:"😑"},
-  };
-  const m = moodMap[mood]||{color:C.onSurfaceVariant,glow:"#43474d44",icon:"❓"};
-  return (
-    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
-      <div style={{width:56,height:56,borderRadius:"50%",background:`radial-gradient(circle at 35% 35%, ${m.color}cc, ${m.color}44)`,boxShadow:`0 0 24px ${m.glow}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,border:`2px solid ${m.color}55`}}>
-        {m.icon}
-      </div>
-      <span style={{fontSize:9,fontWeight:800,color:m.color,letterSpacing:"0.12em",textTransform:"uppercase"}}>{mood||"—"}</span>
-    </div>
-  );
-}
-
-// ── FEED ITEM ─────────────────────────────────────────────────────────────────
-function FeedItem({item,index,lotteryMode}) {
-  const [exp,setExp]=useState(false);
-  const sent = lotteryMode ? guessLotterySentiment(item.title) : (item.sentiment||guessSentiment(item.title));
-  return (
-    <div onClick={()=>setExp(!exp)} className="feed-item"
-      style={{background:exp?C.surfaceHigh:C.surface,border:`1px solid ${C.outline}22`,
-        borderLeft:`3px solid ${sent.color}`,borderRadius:8,padding:"12px 16px",
-        cursor:"pointer",transition:"all 0.2s",animationDelay:`${index*30}ms`}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
-        <div style={{flex:1}}>
-          <div style={{display:"flex",gap:5,marginBottom:5,flexWrap:"wrap"}}>
-            <span style={{background:sent.bg,color:sent.color,fontSize:9,fontWeight:800,padding:"2px 6px",borderRadius:4,letterSpacing:"0.1em"}}>{sent.label}</span>
-            {item.tag&&<span style={{background:`${C.primaryContainer}44`,color:C.primary,fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:4,letterSpacing:"0.1em"}}>{item.tag}</span>}
-            {item.score>100&&<span style={{background:`${C.secondary}22`,color:C.secondary,fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:4}}>↑{item.score}</span>}
-          </div>
-          <p style={{fontSize:13,fontWeight:700,color:C.onSurface,lineHeight:1.4,margin:0}}>{item.title}</p>
-          {exp&&item.summary&&<p style={{fontSize:11,color:C.onSurfaceVariant,marginTop:6,lineHeight:1.6}}>{item.summary}</p>}
+function SentBar({label,color,pct}){return(<div style={{marginBottom:10}}><div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:4}}><span style={{color:T.onVar}}>{label}</span><span style={{color,fontWeight:700}}>{pct}%</span></div><div style={{height:3,background:T.high,borderRadius:2,overflow:"hidden"}}><div style={{width:`${pct}%`,height:"100%",background:color,borderRadius:2,transition:"width .8s ease"}}/></div></div>);}
+function FeedCard({item}){
+  const[exp,setExp]=useState(false);
+  const s=item.sentiment||{label:"NEUTRAL",score:0};
+  const sc=secColor(item.section);const cI=COUNTRY_MAP[item.country]||{flag:"🌍"};
+  return(<div onClick={()=>setExp(!exp)} style={{background:exp?T.high:T.mid,borderRadius:5,padding:"13px 15px",cursor:"pointer",transition:"background .15s",borderLeft:`3px solid ${s.label==="CRITICAL"?T.error:s.label==="WARNING"?T.tertiary:s.label==="POSITIVE"?T.secondary:T.outVar}`,marginBottom:7}}>
+    <div style={{display:"flex",gap:10,justifyContent:"space-between",alignItems:"flex-start"}}>
+      <div style={{flex:1}}>
+        <div style={{display:"flex",gap:5,marginBottom:6,flexWrap:"wrap",alignItems:"center"}}>
+          <span style={{fontSize:9,fontWeight:800,padding:"2px 7px",borderRadius:3,letterSpacing:".08em",background:sentBg(s.label),color:sentColor(s.label)}}>{s.label}</span>
+          <span style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:3,background:`${sc}20`,color:sc}}>{SECTIONS[item.section]?.label||item.section}</span>
+          <span style={{fontSize:10}}>{cI.flag}</span>
+          {item.score>100&&<span style={{fontSize:9,color:T.secondary,fontWeight:700}}>↑{item.score}</span>}
         </div>
-        <div style={{textAlign:"right",flexShrink:0}}>
-          <span style={{fontSize:9,color:C.onSurfaceVariant,display:"block"}}>{fmtAge(item.timestamp)}</span>
-          <span style={{fontSize:9,color:`${lotteryMode?C.lottery:C.primary}99`,display:"block",marginTop:2}}>{item.source}</span>
-        </div>
+        <p style={{fontSize:13,fontWeight:700,color:T.onSurf,lineHeight:1.4,margin:0}}>{item.title}</p>
+        {exp&&item.summary&&<p style={{fontSize:11,color:T.onVar,marginTop:8,lineHeight:1.6}}>{item.summary}</p>}
       </div>
-      {exp&&item.url&&<a href={item.url} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:10,color:lotteryMode?C.lottery:C.primary,marginTop:6,display:"inline-flex",alignItems:"center",gap:4,textDecoration:"none"}}>Open Source ↗</a>}
-    </div>
-  );
-}
-
-// ── SENTIMENT BAR ─────────────────────────────────────────────────────────────
-function SentimentBar({label,color,pct}) {
-  return (
-    <div style={{marginBottom:8}}>
-      <div style={{display:"flex",justifyContent:"space-between",fontSize:10,marginBottom:3}}>
-        <span style={{color}}>{label}</span><span style={{color:C.onSurface,fontWeight:700}}>{pct}%</span>
-      </div>
-      <div style={{height:4,background:`${C.outline}33`,borderRadius:2,overflow:"hidden"}}>
-        <div style={{width:`${pct}%`,height:"100%",background:color,borderRadius:2,transition:"width 0.8s ease"}}/>
+      <div style={{textAlign:"right",flexShrink:0}}>
+        <span style={{fontSize:9,color:T.onVar,display:"block"}}>{ago(item.timestamp)}</span>
+        <span style={{fontSize:9,color:`${srcColor(item.sourceType)}88`,display:"block",marginTop:2}}>{item.source}</span>
       </div>
     </div>
-  );
+    {exp&&item.url&&<a href={item.url} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:10,color:T.primary,marginTop:8,display:"inline-block",textDecoration:"none"}}>Open source ↗</a>}
+  </div>);
 }
 
-// ── MAIN APP ──────────────────────────────────────────────────────────────────
-export default function App() {
-  // — feed state
-  const [items,         setItems]         = useState([]);
-  const [loading,       setLoading]       = useState(true);
-  const [lastRefresh,   setLastRefresh]   = useState(null);
-  const [pulseScore,    setPulseScore]    = useState(50);
-  const [pulseHistory,  setPulseHistory]  = useState([50,52,48,55,60,58,62]);
-  const [sourceStatuses,setSourceStatuses]= useState({});
-  const [weather,       setWeather]       = useState(null);
-  const [fx,            setFx]            = useState(null);
-  const [filter,        setFilter]        = useState("ALL");
-  // — brief state
-  const [brief,         setBrief]         = useState(null);
-  const [briefLoading,  setBriefLoading]  = useState(false);
-  // — lottery state
-  const [lotteryData,   setLotteryData]   = useState(null);
-  const [lotteryLoading,setLotteryLoading]= useState(true);
-  const [lotteryBrief,  setLotteryBrief]  = useState(null);
-  const [lotteryBriefLoading,setLotteryBriefLoading] = useState(false);
-  const [lotteryFilter, setLotteryFilter] = useState("ALL");
-  // — nav
-  const [activeTab,     setActiveTab]     = useState("feed");
-  const timerRef = useRef(null);
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+export default function App(){
+  const[items,setItems]=useState([]);
+  const[redditItems,setRedditItems]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[redditLoading,setRedditLoading]=useState(true);
+  const[srcStatuses,setSrcStatuses]=useState({});
+  const[redditStatus,setRedditStatus]=useState({});
+  const[lastRefresh,setLastRefresh]=useState(null);
+  const[pulseHist,setPulseHist]=useState([50,52,48,55,60,58,62]);
+  const[weather,setWeather]=useState(null);
+  const[fx,setFx]=useState(null);
+  const[brief,setBrief]=useState(null);
+  const[briefLoading,setBriefLoading]=useState(false);
+  const[bulkLoading,setBulkLoading]=useState(false);
+  const[bulkProgress,setBulkProgress]=useState({stage:"",pct:0});
+  const[bulkMeta,setBulkMeta]=useState(null);
+  const[bulkError,setBulkError]=useState(null);
+  const[tab,setTab]=useState("overview");
+  const[activeCountry,setActiveCountry]=useState("Saudi Arabia");
+  const[feedFilter,setFeedFilter]=useState("ALL");
+  const[secFilter,setSecFilter]=useState("ALL");
+  const[searchQ,setSearchQ]=useState("");
+  const[redditFilter,setRedditFilter]=useState("ALL");
+  const timerRef=useRef(null);
 
-  const loadMain = useCallback(async () => {
-    setLoading(true);
-    const statuses={}, allItems=[];
-    for (const src of RSS_SOURCES) {
-      const itms = await fetchRSS(src);
-      statuses[src.id] = itms.length>0?"active":"error";
-      allItems.push(...itms);
-    }
-    for (const topic of WIKI_TOPICS) {
-      const item = await fetchWikipedia(topic);
-      if (item){statuses["wiki-"+topic]="active";allItems.push(item);}
-    }
-    const hnItems = await fetchHackerNews("geopolitics energy mena");
-    statuses["hackernews"] = hnItems.length>0?"active":"warn";
-    allItems.push(...hnItems);
-    allItems.sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
-    const seen=new Set();
-    const unique=allItems.filter(i=>{if(seen.has(i.id))return false;seen.add(i.id);return true;});
-    setItems(unique); setSourceStatuses(statuses);
-    const score=calcPulseScore(unique);
-    setPulseScore(score);
-    setPulseHistory(prev=>[...prev.slice(-6),score]);
-    setLastRefresh(new Date()); setLoading(false);
-    fetchOpenMeteo().then(setWeather);
-    fetchExchangeRate().then(setFx);
-    if (unique.length>5) {
-      setBriefLoading(true);
-      fetchBrief(unique,"intelligence").then(b=>{setBrief(b);setBriefLoading(false);});
-    }
+  const loadMain=useCallback(async()=>{
+    setLoading(true);const statuses={},all=[];
+    for(const src of RSS_SOURCES){const itms=await fetchRSS(src);statuses[src.id]=itms.length>0?"active":"error";all.push(...itms);}
+    const hn=await fetchHackerNews();statuses.hackernews=hn.length>0?"active":"warn";all.push(...hn);
+    all.sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
+    const seen=new Set();const unique=all.filter(i=>{if(seen.has(i.id))return false;seen.add(i.id);return true;});
+    setItems(unique);setSrcStatuses(statuses);
+    const score=calcPulse(unique);setPulseHist(p=>[...p.slice(-6),score]);
+    setLastRefresh(new Date());setLoading(false);
+    fetchOpenMeteo().then(setWeather);fetchExchangeRate().then(setFx);
+    if(unique.length>5){setBriefLoading(true);fetchGemini(unique).then(b=>{setBrief(b);setBriefLoading(false);});}
   },[]);
 
-  const loadLottery = useCallback(async () => {
-    setLotteryLoading(true);
-    const data = await fetchLotterySignals();
-    setLotteryData(data);
-    setLotteryLoading(false);
-    if (data.items?.length>3) {
-      setLotteryBriefLoading(true);
-      fetchBrief(data.items,"lottery").then(b=>{setLotteryBrief(b);setLotteryBriefLoading(false);});
-    }
+  const loadReddit=useCallback(async()=>{
+    setRedditLoading(true);const all=[],statuses={};
+    for(const sub of REDDIT_SUBS){const posts=await fetchRedditSub(sub);statuses[sub.sub]=posts.length>0?"active":"error";all.push(...posts);}
+    all.sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
+    const seen=new Set();const unique=all.filter(i=>{if(seen.has(i.id))return false;seen.add(i.id);return true;});
+    setRedditItems(unique);setRedditStatus(statuses);setRedditLoading(false);
   },[]);
+
+  const loadBulk=useCallback(async()=>{
+    setBulkLoading(true);setBulkError(null);setBulkProgress({stage:"Starting…",pct:2});
+    try{
+      const data=await fetchBulkIngest(p=>setBulkProgress(p));
+      if(!data.ok)throw new Error(data.error||"Ingest failed");
+      const existIds=new Set([...items,...redditItems].map(i=>i.id));
+      const fresh=(data.articles||[]).filter(a=>!existIds.has(a.id));
+      setItems(prev=>{const m=[...prev,...fresh.filter(a=>a.sourceType!=="Reddit")].sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));const s=new Set();return m.filter(i=>{if(s.has(i.id))return false;s.add(i.id);return true;});});
+      setRedditItems(prev=>{const m=[...prev,...fresh.filter(a=>a.sourceType==="Reddit")].sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));const s=new Set();return m.filter(i=>{if(s.has(i.id))return false;s.add(i.id);return true;});});
+      if(data.sourceHealth){const ns={};(data.sourceHealth.rss||[]).forEach(s=>{ns[s.id]=s.status;});if(data.sourceHealth.hn)ns.hackernews=data.sourceHealth.hn.status;setSrcStatuses(p=>({...p,...ns}));const nr={};(data.sourceHealth.reddit||[]).forEach(s=>{nr[s.sub]=s.status;});setRedditStatus(p=>({...p,...nr}));}
+      setBulkMeta(data.meta);setBulkProgress({stage:"Done!",pct:100});
+    }catch(e){setBulkError(e.message);}
+    finally{setTimeout(()=>{setBulkLoading(false);setBulkProgress({stage:"",pct:0});},1800);}
+  },[items,redditItems]);
 
   useEffect(()=>{
-    loadMain(); loadLottery();
-    timerRef.current = setInterval(()=>{loadMain();loadLottery();}, 5*60*1000);
-    return ()=>clearInterval(timerRef.current);
-  },[loadMain,loadLottery]);
+    loadMain();loadReddit();
+    timerRef.current=setInterval(()=>{loadMain();loadReddit();},5*60*1000);
+    return()=>clearInterval(timerRef.current);
+  },[loadMain,loadReddit]);
 
-  const filtered = filter==="ALL" ? items : items.filter(i=>i.sentiment?.label===filter||i.tag===filter);
-  const lotteryItems = lotteryData?.items||[];
-  const lotteryFiltered = lotteryFilter==="ALL" ? lotteryItems
-    : lotteryItems.filter(i=>guessLotterySentiment(i.title).label===lotteryFilter||i.tag===lotteryFilter);
+  const allItems=[...items,...redditItems].sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
+  const pScore=calcPulse(allItems);
+  const sentCounts={CRITICAL:0,WARNING:0,POSITIVE:0,STABLE:0,NEUTRAL:0};
+  allItems.forEach(i=>{if(sentCounts[i.sentiment?.label]!==undefined)sentCounts[i.sentiment.label]++;});
+  const secCounts=Object.keys(SECTIONS).reduce((a,s)=>{a[s]=allItems.filter(i=>i.section===s).length;return a;},{});
 
-  const counts = {
-    ALL:items.length,
-    CRITICAL:items.filter(i=>i.sentiment?.label==="CRITICAL").length,
-    WARNING:items.filter(i=>i.sentiment?.label==="WARNING").length,
-    POSITIVE:items.filter(i=>i.sentiment?.label==="POSITIVE").length,
-    NEUTRAL:items.filter(i=>i.sentiment?.label==="NEUTRAL").length,
-  };
-  const lotCounts = {
-    ALL:lotteryItems.length,
-    HOPEFUL:lotteryItems.filter(i=>guessLotterySentiment(i.title).label==="HOPEFUL").length,
-    CYNICAL:lotteryItems.filter(i=>guessLotterySentiment(i.title).label==="CYNICAL").length,
-    ANXIOUS:lotteryItems.filter(i=>guessLotterySentiment(i.title).label==="ANXIOUS").length,
-    NEUTRAL:lotteryItems.filter(i=>guessLotterySentiment(i.title).label==="NEUTRAL").length,
+  const cData=(cid)=>{
+    const ci=allItems.filter(i=>i.country===cid);if(!ci.length)return{items:[],avg:0,dominant:"NEUTRAL",count:0};
+    const avg=ci.reduce((s,i)=>s+(i.sentiment?.score||0),0)/ci.length;
+    const cnts={};ci.forEach(i=>{const l=i.sentiment?.label||"NEUTRAL";cnts[l]=(cnts[l]||0)+1;});
+    return{items:ci,avg,dominant:Object.entries(cnts).sort((a,b)=>b[1]-a[1])[0]?.[0]||"NEUTRAL",count:ci.length};
   };
 
-  const TABS = [
-    {id:"feed",   icon:"⚡", label:"Live Feed"},
-    {id:"lottery",icon:"🎰", label:"Lottery Pulse"},
-    {id:"brief",  icon:"🧠", label:"AI Brief"},
-    {id:"sources",icon:"🔌", label:"Sources"},
+  const filteredFeed=allItems.filter(i=>{
+    if(feedFilter!=="ALL"&&i.sentiment?.label!==feedFilter)return false;
+    if(secFilter!=="ALL"&&i.section!==secFilter)return false;
+    if(searchQ&&!i.title.toLowerCase().includes(searchQ.toLowerCase())&&!i.country.toLowerCase().includes(searchQ.toLowerCase()))return false;
+    return true;
+  });
+  const filteredReddit=redditItems.filter(i=>redditFilter==="ALL"||i.sentiment?.label===redditFilter);
+  const userSentCol=brief?.userSentiment?({OPTIMISTIC:T.secondary,CAUTIOUS:T.primary,ANXIOUS:T.tertiary,FEARFUL:T.error,INDIFFERENT:T.onVar}[brief.userSentiment]||T.primary):T.primary;
+
+  const NAV=[
+    {id:"overview",label:"Overview",icon:"dashboard"},
+    {id:"feed",label:"Regional News",icon:"rss_feed"},
+    {id:"reddit",label:"Social Intel",icon:"forum"},
+    {id:"country",label:"Countries",icon:"public"},
+    {id:"analysis",label:"Analysis",icon:"monitoring"},
+    {id:"sources",label:"Sources",icon:"layers"},
   ];
 
-  const userSentimentColor = brief?.userSentiment
-    ? ({OPTIMISTIC:C.secondary,CAUTIOUS:C.primary,ANXIOUS:C.tertiary,FEARFUL:C.error,INDIFFERENT:C.onSurfaceVariant}[brief.userSentiment]||C.primary)
-    : C.primary;
+  const css=`
+    @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800;900&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
+    *{box-sizing:border-box;margin:0;padding:0;}html,body{height:100%;background:${T.surface};color:${T.onSurf};}
+    ::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-thumb{background:${T.high};border-radius:10px}
+    .ms{font-family:'Material Symbols Outlined';font-variation-settings:'FILL' 0,'wght' 300,'GRAD' 0,'opsz' 24;vertical-align:middle;font-style:normal;line-height:1}
+    .ms-fill{font-family:'Material Symbols Outlined';font-variation-settings:'FILL' 1,'wght' 400,'GRAD' 0,'opsz' 24;vertical-align:middle;font-style:normal;line-height:1}
+    .nav-link{display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:4px;font-size:12px;font-weight:600;color:${T.onVar};cursor:pointer;transition:all .15s;border-bottom:2px solid transparent;font-family:'Inter',sans-serif;background:transparent;border-top:none;border-left:none;border-right:none}
+    .nav-link:hover{color:${T.onSurf}}.nav-link.active{color:${T.primary};border-bottom-color:${T.primary}}
+    .card{background:${T.mid};border-radius:6px;padding:20px 22px}
+    .chip{padding:5px 14px;border-radius:20px;font-size:11px;font-weight:700;cursor:pointer;transition:all .15s;background:transparent;color:${T.onVar};border:1px solid ${T.outVar}33}
+    .chip:hover{color:${T.onSurf};border-color:${T.outVar}}.chip.on{background:${T.priCont};color:${T.primary};border-color:${T.priCont}}
+    .cbtn{padding:6px 16px;border-radius:20px;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:.05em;transition:all .15s;background:transparent;color:${T.onVar};border:1px solid transparent;font-family:'Manrope',sans-serif;text-transform:uppercase}
+    .cbtn:hover{color:${T.onSurf};background:${T.mid}}.cbtn.active{background:${T.mid};color:${T.primary};border-color:${T.priCont}}
+    .cta{background:linear-gradient(45deg,${T.priCont},${T.primary});color:${T.base};font-weight:700;font-size:11px;letter-spacing:.1em;text-transform:uppercase;border:none;border-radius:4px;padding:10px 18px;cursor:pointer;transition:opacity .2s}.cta:hover{opacity:.9}
+    .ghost{background:transparent;border:1px solid ${T.primary}33;color:${T.primary};font-size:11px;font-weight:700;letter-spacing:.08em;border-radius:4px;padding:8px 16px;cursor:pointer;transition:all .15s}.ghost:hover{background:${T.priCont}33}
+    .glass{background:rgba(45,52,73,0.7);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
+    .ticker{white-space:nowrap;display:inline-block;animation:ticker 50s linear infinite}
+    @keyframes ticker{0%{transform:translateX(100vw)}100%{transform:translateX(-100%)}}
+    @keyframes spin{to{transform:rotate(360deg)}}@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.6)}}
+    .spin{animation:spin 1s linear infinite;display:inline-block}.live{animation:pulse 2s ease infinite;display:inline-block}
+    .srow:hover{background:${T.high}}input::placeholder{color:${T.outVar}}
+  `;
 
-  return (
-    <div style={{display:"flex",minHeight:"100vh",background:C.bg,fontFamily:"'Inter',sans-serif",color:C.onSurface,fontSize:13}}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;700;800;900&family=Inter:wght@400;500;600;700&display=swap');
-        *{box-sizing:border-box;margin:0;padding:0;}
-        ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#2d3449;border-radius:10px}
-        .feed-item:hover{transform:translateX(2px)}.nav-btn{transition:all 0.15s}.nav-btn:hover{background:#171f3388!important}
-        @keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.4)}}
-        @keyframes fade-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-        @keyframes spin{to{transform:rotate(360deg)}}
-        @keyframes ticker{0%{transform:translateX(100%)}100%{transform:translateX(-200%)}}
-        @keyframes lottery-glow{0%,100%{box-shadow:0 0 12px #e879f944}50%{box-shadow:0 0 24px #e879f988}}
-        .feed-item{animation:fade-in .3s ease forwards}.spin{animation:spin 1s linear infinite}
-        .ticker-txt{animation:ticker 30s linear infinite;display:inline-block;white-space:nowrap}
-        .lottery-panel{animation:lottery-glow 3s ease infinite}
-      `}</style>
+  return(
+    <div style={{display:"flex",flexDirection:"column",minHeight:"100vh",background:T.surface,fontFamily:"'Inter',sans-serif",color:T.onSurf,fontSize:13}}>
+      <style>{css}</style>
 
-      {/* ── SIDEBAR ── */}
-      <aside style={{width:224,background:C.sidebar,display:"flex",flexDirection:"column",borderRight:`1px solid ${C.outline}22`,flexShrink:0,position:"sticky",top:0,height:"100vh"}}>
-        <div style={{padding:"18px 16px",borderBottom:`1px solid ${C.outline}22`}}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <div style={{width:32,height:32,background:C.primaryContainer,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🛰️</div>
-            <div>
-              <div style={{fontFamily:"Manrope",fontWeight:900,fontSize:13,color:C.primary,letterSpacing:"0.05em"}}>OPEN EYE</div>
-              <div style={{fontSize:8,color:`${C.primary}60`,letterSpacing:"0.15em",textTransform:"uppercase",fontWeight:700}}>OSINT Platform v2.0</div>
-            </div>
+      {/* BULK MODAL */}
+      {(bulkLoading||bulkError)&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(6,14,32,.9)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,backdropFilter:"blur(8px)"}}>
+          <div className="glass" style={{borderRadius:12,padding:"36px 44px",minWidth:420,maxWidth:520,border:`1px solid ${bulkError?T.error:T.primary}22`,boxShadow:`0 0 60px ${bulkError?"#ef444420":"#b4c5ff18"}`}}>
+            {bulkError?(
+              <><div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+                <span className="ms" style={{fontSize:28,color:T.error}}>error_outline</span>
+                <div style={{fontFamily:"Manrope",fontSize:18,fontWeight:900,color:T.error}}>Ingest Failed</div></div>
+                <p style={{fontSize:13,color:T.onVar,lineHeight:1.65,marginBottom:16}}>{bulkError}</p>
+                <div style={{fontSize:11,color:T.onVar,background:T.low,padding:"10px 14px",borderRadius:5,fontFamily:"'JetBrains Mono',monospace",marginBottom:20}}>Vercel Hobby plan: 10s limit. Use Refresh or upgrade to Pro for bulk ingest.</div>
+                <button className="ghost" onClick={()=>{setBulkError(null);setBulkLoading(false);}}>Dismiss</button></>
+            ):(
+              <><div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}>
+                <span className="ms spin" style={{fontSize:24,color:T.primary}}>sync</span>
+                <div><div style={{fontFamily:"Manrope",fontSize:17,fontWeight:900}}>Bulk Ingest — 30 Days</div>
+                <div style={{fontSize:11,color:T.onVar,marginTop:2}}>RSS · Reddit 100/sub · HN 10 queries — all parallel</div></div></div>
+                <div style={{height:6,background:T.high,borderRadius:3,overflow:"hidden",marginBottom:10,position:"relative"}}>
+                  <div style={{position:"absolute",inset:0,width:`${bulkProgress.pct}%`,background:`linear-gradient(90deg,${T.priCont},${T.primary})`,borderRadius:3,transition:"width .4s ease"}}/></div>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:20}}>
+                  <span style={{fontSize:11,color:T.onVar}}>{bulkProgress.stage}</span>
+                  <span style={{fontSize:11,fontWeight:800,color:T.primary,fontFamily:"'JetBrains Mono',monospace"}}>{bulkProgress.pct}%</span></div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+                  {[["rss_feed","RSS Feeds","7 sources",T.tertiary],["forum","Reddit","12 × 100","#ff6314"],["whatshot","HN","10 queries","#f97316"]].map(([ic,l,sub,col])=>(
+                    <div key={l} style={{background:T.low,borderRadius:5,padding:"10px 12px"}}>
+                      <span className="ms" style={{color:col,fontSize:16,display:"block",marginBottom:4}}>{ic}</span>
+                      <div style={{fontSize:11,fontWeight:700}}>{l}</div>
+                      <div style={{fontSize:9,color:T.onVar,marginTop:2}}>{sub}</div></div>))}
+                </div>
+                {bulkProgress.pct===100&&<div style={{marginTop:14,display:"flex",alignItems:"center",gap:8,padding:"10px 14px",background:`${T.secCont}20`,borderRadius:5}}>
+                  <span className="ms" style={{color:T.secondary,fontSize:18}}>check_circle</span>
+                  <span style={{fontSize:12,color:T.secondary,fontWeight:700}}>All sources ingested!</span></div>}</>
+            )}
           </div>
         </div>
+      )}
 
-        {/* Dual Pulse Rings */}
-        <div style={{padding:"14px 12px",borderBottom:`1px solid ${C.outline}22`,display:"flex",justifyContent:"space-around",alignItems:"center"}}>
-          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
-            <PulseRing score={pulseScore} loading={loading}/>
-            <div style={{fontSize:8,color:C.onSurfaceVariant,fontWeight:700,letterSpacing:"0.12em",textTransform:"uppercase",textAlign:"center"}}>Regional<br/>Pulse</div>
-            <div style={{display:"flex",alignItems:"center",gap:4,marginTop:2}}>
-              <span style={{width:5,height:5,borderRadius:"50%",background:C.secondary,display:"inline-block",animation:"pulse-dot 1.5s ease infinite"}}/>
-              <span style={{fontSize:8,color:C.secondary,fontWeight:700}}>LIVE</span>
-            </div>
+      {/* TOP NAV — horizontal, matching wireframes */}
+      <header style={{background:T.low,borderBottom:`1px solid ${T.outVar}18`,height:56,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 28px",flexShrink:0,position:"sticky",top:0,zIndex:100}}>
+        <div style={{display:"flex",alignItems:"center",gap:28}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginRight:4}}>
+            <div style={{width:28,height:28,background:`linear-gradient(45deg,${T.priCont},${T.primary})`,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <span className="ms-fill" style={{color:T.base,fontSize:16}}>shield</span></div>
+            <div><div style={{fontFamily:"Manrope",fontWeight:900,fontSize:13,color:T.primary,letterSpacing:"-.02em",lineHeight:1}}>STRATEGIC EYE</div>
+              <div style={{fontSize:8,color:`${T.primary}55`,letterSpacing:".12em",textTransform:"uppercase"}}>MENA Intelligence · {MENA_COUNTRIES.length-1} Countries</div></div>
           </div>
-          <div style={{width:1,height:80,background:`${C.outline}33`}}/>
-          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
-            <PulseRing score={lotteryData?.meta?.uncertaintyScore??50} loading={lotteryLoading} color={C.lottery}/>
-            <div style={{fontSize:8,color:C.onSurfaceVariant,fontWeight:700,letterSpacing:"0.12em",textTransform:"uppercase",textAlign:"center"}}>Lottery<br/>Uncertainty</div>
-          </div>
+          <nav style={{display:"flex",gap:2}}>{NAV.map(n=>(<button key={n.id} className={`nav-link${tab===n.id?" active":""}`} onClick={()=>setTab(n.id)}><span className="ms" style={{fontSize:15}}>{n.icon}</span>{n.label}</button>))}</nav>
         </div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{display:"flex",alignItems:"center",gap:7,background:T.mid,borderRadius:4,padding:"5px 11px",width:190}}>
+            <span className="ms" style={{fontSize:14,color:T.onVar}}>search</span>
+            <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder="Search Intel…"
+              style={{background:"transparent",border:"none",outline:"none",fontSize:12,color:T.onSurf,width:"100%"}}/>
+          </div>
+          <button onClick={()=>{loadMain();loadReddit();}} disabled={loading&&redditLoading}
+            style={{background:"transparent",border:`1px solid ${T.outVar}44`,borderRadius:4,padding:"5px 9px",cursor:"pointer",color:T.onVar,display:"flex",alignItems:"center",gap:4,fontSize:11}}>
+            <span className={`ms${(loading||redditLoading)?" spin":""}`} style={{fontSize:15}}>{(loading||redditLoading)?"sync":"refresh"}</span>
+          </button>
+          <button onClick={loadBulk} disabled={bulkLoading} className="cta" style={{display:"flex",alignItems:"center",gap:5,padding:"7px 14px"}}>
+            <span className={`ms${bulkLoading?" spin":""}`} style={{fontSize:14,color:T.base}}>{bulkLoading?"hourglass_top":"history"}</span>
+            {bulkLoading?`${bulkProgress.pct}%`:"Bulk 30d"}
+          </button>
+          <button style={{background:"transparent",border:"none",cursor:"pointer",color:T.onVar,padding:"3px"}}><span className="ms" style={{fontSize:20}}>notifications</span></button>
+          <button style={{background:"transparent",border:"none",cursor:"pointer",color:T.onVar,padding:"3px"}}><span className="ms" style={{fontSize:20}}>settings</span></button>
+          <div style={{width:28,height:28,borderRadius:"50%",background:T.priCont,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
+            <span className="ms" style={{fontSize:17,color:T.primary}}>account_circle</span></div>
+        </div>
+      </header>
 
-        {/* User Sentiment */}
-        {brief?.userSentiment && (
-          <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.outline}22`}}>
-            <div style={{fontSize:8,color:C.onSurfaceVariant,fontWeight:700,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:6}}>User Sentiment</div>
-            <div style={{display:"flex",alignItems:"center",gap:8}}>
-              <div style={{width:8,height:8,borderRadius:"50%",background:userSentimentColor,boxShadow:`0 0 8px ${userSentimentColor}88`}}/>
-              <span style={{fontSize:12,fontWeight:800,color:userSentimentColor,fontFamily:"Manrope"}}>{brief.userSentiment}</span>
+      {/* TICKER */}
+      <div style={{background:T.base,borderBottom:`1px solid ${T.outVar}18`,padding:"5px 0",overflow:"hidden",flexShrink:0}}>
+        <span style={{fontSize:9,fontWeight:800,color:T.error,background:`${T.errCont}55`,padding:"2px 8px",borderRadius:3,marginLeft:16,marginRight:12,letterSpacing:".1em"}}>● BREAKING</span>
+        <span className="ticker" style={{fontSize:11,color:T.onVar}}>{allItems.slice(0,8).map(i=>i.title).join("   ·   ")||"Loading intelligence feed…"}</span>
+      </div>
+
+      {/* CONTENT */}
+      <main style={{flex:1,overflowY:"auto",padding:"28px 32px",background:T.surface}}>
+
+        {/* ── OVERVIEW ────────────────────────────────────────────────── */}
+        {tab==="overview"&&(
+          <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:24}}>
+              <div>
+                <div style={{fontSize:9,color:T.onVar,textTransform:"uppercase",letterSpacing:".2em",fontWeight:700,marginBottom:6}}>Intelligence Feed · MENA Region</div>
+                <h1 style={{fontFamily:"Manrope",fontSize:34,fontWeight:900,letterSpacing:"-.5px",lineHeight:1}}>Middle East Activity Heatmap</h1>
+                <p style={{color:T.onVar,fontSize:12,marginTop:6,display:"flex",alignItems:"center",gap:8}}>
+                  <span className="live" style={{width:6,height:6,borderRadius:"50%",background:T.secondary,flexShrink:0}}/>
+                  Real-time alert density · {MENA_COUNTRIES.length-1} MENA hubs · {allItems.length} signals
+                </p>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <div style={{background:`${T.secCont}33`,color:T.secondary,fontSize:9,fontWeight:800,padding:"5px 12px",borderRadius:3,letterSpacing:".06em"}}>LIVE DATA</div>
+                <div style={{background:T.mid,color:T.onVar,fontSize:9,fontWeight:700,padding:"5px 12px",borderRadius:3,letterSpacing:".06em"}}>OPERATIONAL</div>
+              </div>
             </div>
-            {brief.sentimentDrivers?.slice(0,2).map((d,i)=>(
-              <div key={i} style={{fontSize:9,color:C.onSurfaceVariant,marginTop:3,paddingLeft:16}}>· {d}</div>
-            ))}
+
+            <div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:20,marginBottom:20}}>
+              <div>
+                {/* Map */}
+                <div style={{background:T.low,borderRadius:6,height:300,position:"relative",overflow:"hidden",marginBottom:14}}>
+                  <div style={{position:"absolute",inset:0,background:`radial-gradient(ellipse at 58% 52%, ${T.priCont}55 0%,transparent 65%)`}}/>
+                  {[{id:"UAE",x:"67%",y:"53%",col:T.secondary},{id:"Saudi Arabia",x:"52%",y:"50%",col:T.primary},
+                    {id:"Qatar",x:"63%",y:"51%",col:T.primary},{id:"Kuwait",x:"60%",y:"43%",col:T.primary},
+                    {id:"Iran",x:"72%",y:"36%",col:T.error},{id:"Iraq",x:"63%",y:"37%",col:T.tertiary},
+                    {id:"Jordan",x:"54%",y:"43%",col:T.primary},{id:"Israel",x:"51%",y:"42%",col:T.tertiary},
+                    {id:"Egypt",x:"44%",y:"47%",col:T.primary},{id:"Yemen",x:"59%",y:"62%",col:T.error},
+                    {id:"Lebanon",x:"52%",y:"39%",col:T.tertiary},{id:"Syria",x:"55%",y:"36%",col:T.error},
+                    {id:"Libya",x:"34%",y:"44%",col:T.onVar},{id:"Morocco",x:"22%",y:"38%",col:T.onVar},
+                    {id:"Sudan",x:"46%",y:"60%",col:T.tertiary},
+                  ].map(({id,x,y,col})=>{
+                    const cd=cData(id),sz=cd.count>8?14:cd.count>3?10:7,c=COUNTRY_MAP[id];
+                    return(<div key={id} onClick={()=>{setActiveCountry(id);setTab("country");}}
+                      style={{position:"absolute",left:x,top:y,transform:"translate(-50%,-50%)",cursor:"pointer",zIndex:10}}>
+                      <div style={{width:sz,height:sz,borderRadius:"50%",background:col,boxShadow:`0 0 ${sz*2}px ${col}88`,opacity:.9}} title={`${id}: ${cd.count} signals`}/>
+                      {cd.count>3&&<div style={{position:"absolute",top:sz+2,left:"50%",transform:"translateX(-50%)",whiteSpace:"nowrap",fontSize:7,color:T.onVar,fontWeight:700,pointerEvents:"none"}}>{c?.label||id}</div>}
+                    </div>);
+                  })}
+                  <div style={{position:"absolute",bottom:10,left:14}}>
+                    <div style={{fontFamily:"Manrope",fontSize:13,fontWeight:800,marginBottom:5}}>MENA Activity Map <span style={{fontSize:10,color:T.onVar}}>— click a hub to drill down</span></div>
+                    <div style={{display:"flex",gap:12}}>{[[T.error,"Critical"],[T.tertiary,"Warning"],[T.secondary,"Stable"],[T.primary,"Active"]].map(([col,l])=>(
+                      <div key={l} style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:6,height:6,borderRadius:"50%",background:col,boxShadow:`0 0 5px ${col}88`}}/><span style={{fontSize:8,color:T.onVar,fontWeight:700}}>{l}</span></div>))}</div>
+                  </div>
+                </div>
+                {/* Trending topics bento */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
+                  {Object.entries(secCounts).sort((a,b)=>b[1]-a[1]).slice(0,4).map(([sec,cnt],i)=>(
+                    <div key={sec} className="card" style={{cursor:"pointer",padding:"14px 16px"}} onClick={()=>{setSecFilter(sec);setTab("feed");}}>
+                      <div style={{fontSize:20,marginBottom:7}}>{sec.slice(0,2)}</div>
+                      <div style={{fontSize:8,color:T.onVar,textTransform:"uppercase",letterSpacing:".1em",fontWeight:700,marginBottom:3}}>TOPIC 0{i+1}</div>
+                      <div style={{fontFamily:"Manrope",fontSize:12,fontWeight:800,lineHeight:1.3}}>{SECTIONS[sec]?.label||sec}</div>
+                      <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:secColor(sec),marginTop:5,fontWeight:700}}>{cnt}</div>
+                    </div>))}
+                </div>
+              </div>
+
+              {/* Right column */}
+              <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                <div className="card" style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,padding:"16px 14px"}}>
+                  <PulseRing score={pScore} loading={loading&&!allItems.length}/>
+                  <div style={{display:"flex",gap:14}}>{[["CRITICAL",T.error],["WARNING",T.tertiary],["POSITIVE",T.secondary]].map(([l,col])=>(
+                    <div key={l} style={{textAlign:"center"}}><div style={{fontFamily:"Manrope",fontWeight:800,fontSize:15,color:col}}>{sentCounts[l]||0}</div><div style={{fontSize:8,color:T.onVar,letterSpacing:".08em"}}>{l}</div></div>))}
+                  </div>
+                  <Spark data={pulseHist} color={T.primary} w={120} h={24}/>
+                </div>
+                <div className="card">
+                  <div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:".15em",color:T.onVar,marginBottom:12}}>Market Indicators</div>
+                  {[["Brent Crude","$82.44","+1.24%",T.secondary],["DFM Index",fx?`${fx.aed?.toFixed(2)||"3.67"}`:"—","+0.42%",T.secondary],["TASI Index",fx?`${fx.sar?.toFixed(2)||"3.75"}`:"—","-0.15%",T.error]].map(([l,v,ch,col])=>(
+                    <div key={l} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                      <div><div style={{fontFamily:"Manrope",fontSize:16,fontWeight:900}}>{v}</div><div style={{fontSize:9,color:T.onVar}}>{l}</div></div>
+                      <span style={{fontSize:9,fontWeight:800,background:`${col}22`,color:col,padding:"2px 8px",borderRadius:3}}>{ch}</span>
+                    </div>))}
+                </div>
+                <div className="card" style={{flex:1}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                    <div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:".15em",color:T.onVar}}>Pulse Updates</div>
+                    <button onClick={()=>setTab("feed")} style={{fontSize:10,color:T.primary,background:"none",border:"none",cursor:"pointer",fontWeight:600}}>View All</button>
+                  </div>
+                  {allItems.slice(0,4).map(item=>{const sc=secColor(item.section);return(
+                    <div key={item.id} style={{borderLeft:`2px solid ${sc}`,paddingLeft:10,marginBottom:11}}>
+                      <div style={{fontSize:9,fontWeight:700,color:sc,textTransform:"uppercase",letterSpacing:".08em",marginBottom:2}}>{SECTIONS[item.section]?.label||item.section} · {ago(item.timestamp)}</div>
+                      <div style={{fontSize:12,fontWeight:700,lineHeight:1.35}}>{item.title}</div>
+                      <div style={{fontSize:9,color:T.onVar,marginTop:2}}>{COUNTRY_MAP[item.country]?.flag||"🌍"} {item.source}</div>
+                    </div>);})}
+                </div>
+              </div>
+            </div>
+            {lastRefresh&&<div style={{fontSize:9,color:T.onVar,textAlign:"right",fontFamily:"'JetBrains Mono',monospace"}}>Last refresh: {lastRefresh.toLocaleTimeString()}{bulkMeta&&` · Bulk: ${bulkMeta.totalFiltered} articles`}</div>}
           </div>
         )}
 
-        <nav style={{padding:"8px 8px",flex:1}}>
-          {TABS.map(t=>(
-            <button key={t.id} className="nav-btn" onClick={()=>setActiveTab(t.id)}
-              style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:6,border:"none",cursor:"pointer",textAlign:"left",marginBottom:2,
-                background:activeTab===t.id?C.surface:"transparent",
-                color:activeTab===t.id?(t.id==="lottery"?C.lottery:C.primary):`${C.onSurface}99`,
-                borderLeft:activeTab===t.id?`3px solid ${t.id==="lottery"?C.lottery:C.primary}`:"3px solid transparent",
-                fontWeight:activeTab===t.id?700:500,fontSize:12}}>
-              <span style={{fontSize:14}}>{t.icon}</span>
-              {t.label}
-              {t.id==="lottery"&&lotteryItems.length>0&&<span style={{marginLeft:"auto",fontSize:9,background:`${C.lottery}22`,color:C.lottery,padding:"1px 5px",borderRadius:8,fontWeight:800}}>{lotteryItems.length}</span>}
-            </button>
-          ))}
-        </nav>
-
-        {/* FX */}
-        <div style={{padding:"10px 14px",borderTop:`1px solid ${C.outline}22`,fontSize:10}}>
-          <div style={{color:`${C.onSurfaceVariant}88`,fontWeight:700,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:6}}>FX (USD)</div>
-          {fx?[["SAR",fx.sar],["AED",fx.aed],["QAR",fx.qar]].map(([k,v])=>v&&(
-            <div key={k} style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-              <span style={{color:C.onSurfaceVariant}}>{k}</span>
-              <span style={{color:C.onSurface,fontWeight:700}}>{v.toFixed(3)}</span>
-            </div>
-          )):<div style={{color:`${C.onSurfaceVariant}55`}}>Loading…</div>}
-        </div>
-
-        <div style={{padding:"10px 14px",borderTop:`1px solid ${C.outline}22`}}>
-          <button onClick={()=>{loadMain();loadLottery();}} disabled={loading&&lotteryLoading}
-            style={{width:"100%",background:`linear-gradient(135deg,${C.primaryContainer},${C.primary}33)`,border:`1px solid ${C.primary}33`,color:C.primary,borderRadius:6,padding:"8px",fontSize:11,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-            <span style={{fontSize:12,display:"inline-block",...((loading||lotteryLoading)?{animation:"spin 1s linear infinite"}:{})}}>⟳</span>
-            {(loading||lotteryLoading)?"Ingesting…":"Refresh All"}
-          </button>
-          {lastRefresh&&<div style={{fontSize:9,color:`${C.onSurfaceVariant}55`,textAlign:"center",marginTop:3}}>{lastRefresh.toLocaleTimeString()}</div>}
-        </div>
-      </aside>
-
-      {/* ── MAIN ── */}
-      <main style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-
-        {/* Topbar */}
-        <header style={{background:C.sidebar,borderBottom:`1px solid ${C.outline}22`,padding:"10px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
-          <div style={{fontFamily:"Manrope",fontWeight:900,fontSize:16,color:C.primary,letterSpacing:"-0.02em"}}>STRATEGIC EYE</div>
-          <div style={{flex:1,margin:"0 20px",overflow:"hidden",background:C.surface,borderRadius:4,padding:"4px 0",maxWidth:600}}>
-            <span style={{fontSize:9,background:`${C.error}22`,color:C.error,padding:"2px 6px",borderRadius:3,fontWeight:800,marginLeft:8}}>● LIVE</span>
-            <span className="ticker-txt" style={{fontSize:11,color:C.onSurfaceVariant,marginLeft:12}}>
-              {items.slice(0,5).map(i=>i.title).join("  ·  ")}
-            </span>
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:10,color:C.onSurfaceVariant}}>{items.length} signals</span>
-            <span style={{fontSize:9,color:C.lottery,fontWeight:700,background:`${C.lottery}22`,padding:"2px 8px",borderRadius:10}}>🎰 {lotteryItems.length} lottery</span>
-            <span style={{fontSize:9,color:C.secondary,fontWeight:700,background:`${C.secondary}22`,padding:"2px 8px",borderRadius:10}}>● ONLINE</span>
-          </div>
-        </header>
-
-        <div style={{flex:1,overflow:"auto",padding:"20px"}}>
-
-          {/* ══ LIVE FEED ══ */}
-          {activeTab==="feed"&&(
-            <div>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:20}}>
-                <div>
-                  <h1 style={{fontFamily:"Manrope",fontSize:24,fontWeight:900,letterSpacing:"-0.03em"}}>Open Intelligence Feed <span style={{color:C.primary}}>.</span></h1>
-                  <p style={{color:C.onSurfaceVariant,fontSize:12,marginTop:4}}>{items.length} signals from {Object.values(sourceStatuses).filter(s=>s==="active").length} active sources</p>
-                </div>
-                <div style={{background:C.surface,borderRadius:8,padding:"10px 14px",border:`1px solid ${C.outline}22`}}>
-                  <div style={{fontSize:9,color:C.onSurfaceVariant,fontWeight:700,marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>Pulse Trend</div>
-                  <Sparkline data={pulseHistory} color={C.primary} h={28}/>
-                </div>
-              </div>
-
-              <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
-                {[["ALL",C.primary],["CRITICAL",C.error],["WARNING",C.tertiary],["POSITIVE",C.secondary],["NEUTRAL",C.onSurfaceVariant]].map(([f,col])=>(
-                  <button key={f} onClick={()=>setFilter(f)}
-                    style={{padding:"5px 12px",borderRadius:20,border:`1px solid ${filter===f?col:C.outline+"33"}`,background:filter===f?`${col}22`:"transparent",color:filter===f?col:C.onSurfaceVariant,fontSize:10,fontWeight:700,cursor:"pointer",letterSpacing:"0.08em",transition:"all 0.15s"}}>
-                    {f} {counts[f]?`(${counts[f]})`:""}</button>
-                ))}
-              </div>
-
-              <div style={{display:"grid",gridTemplateColumns:"1fr 280px",gap:16}}>
-                <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                  {loading&&items.length===0
-                    ?[...Array(5)].map((_,i)=><div key={i} style={{background:C.surface,borderRadius:8,padding:16,height:72,opacity:0.4,animation:"pulse-dot 1.5s ease infinite",animationDelay:`${i*100}ms`}}/>)
-                    :filtered.length===0
-                      ?<div style={{color:C.onSurfaceVariant,textAlign:"center",padding:40}}>No signals matching this filter.</div>
-                      :filtered.map((item,idx)=><FeedItem key={item.id} item={item} index={idx}/>)
-                  }
-                </div>
-                <div style={{display:"flex",flexDirection:"column",gap:12}}>
-                  <div style={{background:C.surface,borderRadius:10,padding:16,border:`1px solid ${C.outline}22`}}>
-                    <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.12em",textTransform:"uppercase",color:C.onSurfaceVariant,marginBottom:12}}>Signal Sentiment</div>
-                    {[["POSITIVE",C.secondary,counts.POSITIVE],["NEUTRAL",C.onSurfaceVariant,counts.NEUTRAL],["WARNING",C.tertiary,counts.WARNING],["CRITICAL",C.error,counts.CRITICAL]].map(([lbl,col,cnt])=>(
-                      <SentimentBar key={lbl} label={lbl} color={col} pct={items.length?Math.round((cnt/items.length)*100):0}/>
-                    ))}
-                  </div>
-                  {weather&&(
-                    <div style={{background:C.surface,borderRadius:10,padding:16,border:`1px solid ${C.outline}22`}}>
-                      <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.12em",textTransform:"uppercase",color:C.onSurfaceVariant,marginBottom:6}}>Riyadh Conditions</div>
-                      <div style={{fontSize:24,fontWeight:900,color:C.primary,fontFamily:"Manrope"}}>{weather.temp}°C</div>
-                      <div style={{fontSize:11,color:C.onSurfaceVariant,marginTop:2}}>Wind: {weather.wind} km/h</div>
-                    </div>
-                  )}
-                  <div style={{background:C.surface,borderRadius:10,padding:16,border:`1px solid ${C.outline}22`}}>
-                    <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.12em",textTransform:"uppercase",color:C.onSurfaceVariant,marginBottom:10}}>Top Sources</div>
-                    {[...new Set(items.map(i=>i.source))].slice(0,6).map(src=>{
-                      const cnt=items.filter(i=>i.source===src).length;
-                      return <div key={src} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
-                        <span style={{fontSize:11,color:C.onSurface,fontWeight:600}}>{src}</span>
-                        <span style={{fontSize:10,color:C.primary,fontWeight:800,background:`${C.primaryContainer}55`,padding:"1px 7px",borderRadius:10}}>{cnt}</span>
-                      </div>;
-                    })}
-                  </div>
-                </div>
+        {/* ── REGIONAL NEWS FEED ────────────────────────────────────── */}
+        {tab==="feed"&&(
+          <div>
+            {/* Country filter bar — all MENA countries */}
+            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:16,flexWrap:"wrap"}}>
+              <button className={`cbtn${feedFilter==="ALL"?" active":""}`} onClick={()=>setFeedFilter("ALL")}>All</button>
+              {MENA_COUNTRIES.filter(c=>c.id!=="Regional").map(c=>(
+                <button key={c.id} className={`cbtn${feedFilter===c.id?" active":""}`} onClick={()=>setFeedFilter(f=>f===c.id?"ALL":c.id)}>{c.flag} {c.label}</button>))}
+              <div style={{marginLeft:"auto",fontSize:10,color:T.onVar,display:"flex",alignItems:"center",gap:5}}>
+                <span className="live" style={{width:5,height:5,borderRadius:"50%",background:T.secondary}}/>Last: {lastRefresh?ago(lastRefresh):"—"}
               </div>
             </div>
-          )}
-
-          {/* ══ LOTTERY PULSE ══ */}
-          {activeTab==="lottery"&&(
-            <div>
-              {/* Hero header */}
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:20}}>
-                <div>
-                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
-                    <span style={{fontSize:28}}>🎰</span>
-                    <h1 style={{fontFamily:"Manrope",fontSize:24,fontWeight:900,letterSpacing:"-0.03em"}}>
-                      Lottery Pulse <span style={{color:C.lottery}}>.</span>
-                    </h1>
-                  </div>
-                  <p style={{color:C.onSurfaceVariant,fontSize:12}}>
-                    Real-time public sentiment around lottery, gambling & winning — Reddit, HN, Wikipedia
-                  </p>
-                </div>
-              </div>
-
-              {/* Stat strip */}
-              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:20}}>
-                {[
-                  ["Signals",        lotteryData?.meta?.totalSignals??0,      C.lottery],
-                  ["Sources",        lotteryData?.meta?.sourceDiversity??0,    C.primary],
-                  ["Avg Upvote",     `${lotteryData?.meta?.avgUpvoteRatio??0}%`,C.secondary],
-                  ["Uncertainty",    `${lotteryData?.meta?.uncertaintyScore??0}%`,lotteryData?.meta?.uncertaintyScore>60?C.error:lotteryData?.meta?.uncertaintyScore>30?C.tertiary:C.secondary],
-                ].map(([lbl,val,col])=>(
-                  <div key={lbl} style={{background:C.surface,borderRadius:10,padding:14,border:`1px solid ${C.outline}22`}}>
-                    <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.12em",textTransform:"uppercase",color:C.onSurfaceVariant,marginBottom:5}}>{lbl}</div>
-                    <div style={{fontSize:20,fontWeight:900,color:col,fontFamily:"Manrope"}}>{val}</div>
-                  </div>
-                ))}
-              </div>
-
-              {/* AI Mood + Uncertainty + Sentiment split */}
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:20}}>
-
-                {/* Mood orb card */}
-                <div className="lottery-panel" style={{background:C.surface,borderRadius:12,padding:20,border:`1px solid ${C.lottery}33`,display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
-                  <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",color:C.lottery,alignSelf:"flex-start"}}>Public Mood</div>
-                  {lotteryBriefLoading
-                    ?<div className="spin" style={{fontSize:28,marginTop:10}}>⟳</div>
-                    :<MoodOrb mood={lotteryBrief?.overallMood}/>
-                  }
-                  {lotteryBrief?.dominantNarrative&&(
-                    <div style={{fontSize:11,color:C.onSurface,fontWeight:700,textAlign:"center",fontFamily:"Manrope"}}>"{lotteryBrief.dominantNarrative}"</div>
-                  )}
-                </div>
-
-                {/* Uncertainty gauge */}
-                <div style={{background:C.surface,borderRadius:12,padding:20,border:`1px solid ${C.outline}22`,display:"flex",flexDirection:"column",alignItems:"center",gap:10}}>
-                  <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",color:C.onSurfaceVariant,alignSelf:"flex-start"}}>Signal Uncertainty</div>
-                  <UncertaintyGauge score={lotteryData?.meta?.uncertaintyScore??50}/>
-                  <div style={{fontSize:10,color:C.onSurfaceVariant,textAlign:"center",lineHeight:1.5}}>
-                    {(lotteryData?.meta?.uncertaintyScore??50)<30
-                      ?"Strong clear signal — sentiment is consistent across sources"
-                      :(lotteryData?.meta?.uncertaintyScore??50)<60
-                        ?"Mixed signals — some variance between communities"
-                        :"High noise — contradictory signals, interpret cautiously"}
-                  </div>
-                </div>
-
-                {/* Sentiment split */}
-                <div style={{background:C.surface,borderRadius:12,padding:20,border:`1px solid ${C.outline}22`}}>
-                  <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",color:C.onSurfaceVariant,marginBottom:14}}>Sentiment Split</div>
-                  {lotteryBrief?.sentimentSplit
-                    ?[["Positive",C.secondary,lotteryBrief.sentimentSplit.positive],["Neutral",C.onSurfaceVariant,lotteryBrief.sentimentSplit.neutral],["Negative",C.error,lotteryBrief.sentimentSplit.negative]].map(([l,c,v])=>(
-                        <SentimentBar key={l} label={l} color={c} pct={v||0}/>
-                      ))
-                    :[["HOPEFUL",C.lottery,lotCounts.HOPEFUL],["NEUTRAL",C.onSurfaceVariant,lotCounts.NEUTRAL],["CYNICAL",C.tertiary,lotCounts.CYNICAL],["ANXIOUS","#f87171",lotCounts.ANXIOUS]].map(([l,c,v])=>(
-                        <SentimentBar key={l} label={l} color={c} pct={lotteryItems.length?Math.round((v/lotteryItems.length)*100):0}/>
-                      ))
-                  }
-                </div>
-              </div>
-
-              {/* AI Psych insight */}
-              {lotteryBrief&&!lotteryBrief._error&&(
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}}>
-                  <div style={{background:`${C.lottery}0d`,borderRadius:12,padding:18,border:`1px solid ${C.lottery}33`}}>
-                    <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",color:C.lottery,marginBottom:10}}>🧠 Psych Insight</div>
-                    <p style={{fontSize:13,color:C.onSurface,lineHeight:1.7}}>{lotteryBrief.psychInsight}</p>
-                    {lotteryBrief.keyEmotions?.length>0&&(
-                      <div style={{display:"flex",gap:6,marginTop:12,flexWrap:"wrap"}}>
-                        {lotteryBrief.keyEmotions.map(e=>(
-                          <span key={e} style={{fontSize:10,background:`${C.lottery}22`,color:C.lottery,padding:"2px 8px",borderRadius:10,fontWeight:700}}>{e}</span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                    <div style={{background:`${C.secondary}0d`,borderRadius:10,padding:14,border:`1px solid ${C.secondary}22`,flex:1}}>
-                      <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.12em",textTransform:"uppercase",color:C.secondary,marginBottom:8}}>✓ Opportunity Signals</div>
-                      {lotteryBrief.opportunitySignals?.map((s,i)=>(
-                        <div key={i} style={{display:"flex",gap:8,marginBottom:5}}><span style={{color:C.secondary}}>→</span><span style={{fontSize:12,color:C.onSurface}}>{s}</span></div>
-                      ))}
-                    </div>
-                    <div style={{background:`${C.error}0d`,borderRadius:10,padding:14,border:`1px solid ${C.error}22`,flex:1}}>
-                      <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.12em",textTransform:"uppercase",color:C.error,marginBottom:8}}>⚠ Risk Signals</div>
-                      {lotteryBrief.riskSignals?.map((s,i)=>(
-                        <div key={i} style={{display:"flex",gap:8,marginBottom:5}}><span style={{color:C.error}}>→</span><span style={{fontSize:12,color:C.onSurface}}>{s}</span></div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Filter pills */}
-              <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
-                {[["ALL",C.primary],["HOPEFUL",C.lottery],["CYNICAL",C.tertiary],["ANXIOUS","#f87171"],["NEUTRAL",C.onSurfaceVariant]].map(([f,col])=>(
-                  <button key={f} onClick={()=>setLotteryFilter(f)}
-                    style={{padding:"4px 12px",borderRadius:20,border:`1px solid ${lotteryFilter===f?col:C.outline+"33"}`,background:lotteryFilter===f?`${col}22`:"transparent",color:lotteryFilter===f?col:C.onSurfaceVariant,fontSize:10,fontWeight:700,cursor:"pointer",transition:"all 0.15s"}}>
-                    {f} {lotCounts[f]?`(${lotCounts[f]})`:""}</button>
-                ))}
-              </div>
-
-              {/* Lottery feed */}
-              <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                {lotteryLoading&&lotteryItems.length===0
-                  ?[...Array(5)].map((_,i)=><div key={i} style={{background:C.surface,borderRadius:8,padding:16,height:68,opacity:0.4,animation:"pulse-dot 1.5s ease infinite",animationDelay:`${i*100}ms`}}/>)
-                  :lotteryFiltered.length===0
-                    ?<div style={{color:C.onSurfaceVariant,textAlign:"center",padding:40}}>No lottery signals yet. Try refreshing.</div>
-                    :lotteryFiltered.map((item,idx)=><FeedItem key={item.id} item={item} index={idx} lotteryMode/>)
-                }
-              </div>
+            <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",marginBottom:16}}>
+              <h1 style={{fontFamily:"Manrope",fontSize:30,fontWeight:900,letterSpacing:"-.5px"}}>Regional Feed <span style={{color:T.primary}}>.</span></h1>
+              <div style={{display:"flex",gap:14}}>{[["NEUTRAL",T.onVar],["WARNING",T.tertiary],["CRITICAL",T.error]].map(([l,col])=>(
+                <span key={l} style={{fontSize:11,fontWeight:700,display:"flex",alignItems:"center",gap:5}}>
+                  <span style={{width:5,height:5,borderRadius:"50%",background:col}}/><span style={{color:col}}>{sentCounts[l]||0} {l}</span></span>))}</div>
             </div>
-          )}
-
-          {/* ══ AI BRIEF ══ */}
-          {activeTab==="brief"&&(
-            <div style={{maxWidth:720}}>
-              <div style={{marginBottom:24}}>
-                <h1 style={{fontFamily:"Manrope",fontSize:24,fontWeight:900,letterSpacing:"-0.03em"}}>AI Intelligence Brief <span style={{color:C.primary}}>.</span></h1>
-                <p style={{color:C.onSurfaceVariant,fontSize:12,marginTop:4}}>Gemini 2.5 Flash synthesis of {items.length} open-source signals</p>
-              </div>
-              {briefLoading?(
-                <div style={{background:C.surface,borderRadius:12,padding:32,border:`1px solid ${C.outline}22`,textAlign:"center"}}>
-                  <div className="spin" style={{fontSize:32,marginBottom:12,display:"inline-block"}}>⟳</div>
-                  <div style={{color:C.onSurfaceVariant,fontSize:13}}>Analysing {items.length} signals…</div>
-                </div>
-              ):brief?._error?(
-                <div style={{background:`${C.error}11`,borderRadius:12,padding:24,border:`1px solid ${C.error}33`}}>
-                  <div style={{fontWeight:700,color:C.error,marginBottom:8}}>⚠ Gemini API Error</div>
-                  <p style={{fontSize:12,color:C.onSurfaceVariant}}>{brief._error}</p>
-                  <p style={{fontSize:11,color:C.onSurfaceVariant,marginTop:8}}>Check that <code style={{background:C.surfaceHigh,padding:"1px 4px",borderRadius:3}}>GEMINI_API_KEY</code> is set in Vercel → Settings → Environment Variables.</p>
-                </div>
-              ):brief?(
-                <div style={{display:"flex",flexDirection:"column",gap:16}}>
-                  <div style={{background:C.surface,borderRadius:12,padding:24,border:`1px solid ${C.outline}22`}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:16}}>
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",color:C.onSurfaceVariant,marginBottom:6}}>Top Theme</div>
-                        <div style={{fontFamily:"Manrope",fontSize:20,fontWeight:900,color:C.primary,marginBottom:12}}>{brief.topTheme}</div>
-                        <p style={{fontSize:14,color:C.onSurface,lineHeight:1.7}}>{brief.summary}</p>
-                        {brief.userSentiment&&(
-                          <div style={{marginTop:14,display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:`${userSentimentColor}11`,borderRadius:8,border:`1px solid ${userSentimentColor}22`}}>
-                            <div style={{width:8,height:8,borderRadius:"50%",background:userSentimentColor,boxShadow:`0 0 8px ${userSentimentColor}88`}}/>
-                            <span style={{fontSize:12,fontWeight:700,color:userSentimentColor}}>User Sentiment: {brief.userSentiment}</span>
-                            <span style={{fontSize:11,color:C.onSurfaceVariant}}>— {brief.sentimentDrivers?.[0]||""}</span>
-                          </div>
-                        )}
-                      </div>
-                      <div style={{flexShrink:0,textAlign:"center"}}>
-                        <ThreatGauge level={brief.threatLevel}/>
-                        <div style={{fontSize:9,color:C.onSurfaceVariant,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase"}}>Threat Level</div>
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{background:C.surface,borderRadius:12,padding:24,border:`1px solid ${C.outline}22`}}>
-                    <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",color:C.onSurfaceVariant,marginBottom:14}}>Key Trends</div>
-                    {(brief.keyTrends||[]).map((t,i)=>(
-                      <div key={i} style={{display:"flex",gap:12,alignItems:"flex-start",marginBottom:10}}>
-                        <span style={{width:22,height:22,background:C.primaryContainer,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:900,color:C.primary,flexShrink:0}}>{i+1}</span>
-                        <span style={{fontSize:13,color:C.onSurface,lineHeight:1.5}}>{t}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{background:`${C.tertiary}11`,borderRadius:12,padding:20,border:`1px solid ${C.tertiary}33`}}>
-                    <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",color:C.tertiary,marginBottom:12}}>⚠ Watch Items</div>
-                    {(brief.watchItems||[]).map((item,i)=>(
-                      <div key={i} style={{display:"flex",gap:10,alignItems:"flex-start",marginBottom:8}}>
-                        <span style={{color:C.tertiary,fontSize:12,flexShrink:0}}>→</span>
-                        <span style={{fontSize:13,color:C.onSurface,lineHeight:1.5}}>{item}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <button onClick={()=>{setBriefLoading(true);fetchBrief(items,"intelligence").then(b=>{setBrief(b);setBriefLoading(false);});}}
-                    style={{background:`linear-gradient(135deg,${C.primaryContainer},${C.primary}44)`,border:`1px solid ${C.primary}44`,color:C.primary,borderRadius:8,padding:"10px 20px",fontSize:12,fontWeight:700,cursor:"pointer",alignSelf:"flex-start"}}>
-                    ⟳ Regenerate Brief
-                  </button>
-                </div>
-              ):(
-                <div style={{background:C.surface,borderRadius:12,padding:32,border:`1px solid ${C.outline}22`,textAlign:"center"}}>
-                  <div style={{fontSize:13,color:C.onSurfaceVariant}}>Refresh the feed to generate an AI brief.</div>
-                </div>
-              )}
+            <div style={{display:"flex",gap:5,marginBottom:16,flexWrap:"wrap"}}>
+              {["ALL",...Object.keys(SECTIONS)].map(s=>(
+                <button key={s} className={`chip${secFilter===s?" on":""}`} onClick={()=>setSecFilter(s)}
+                  style={{borderLeft:s!=="ALL"?`2px solid ${secColor(s)}`:undefined}}>{s==="ALL"?"All Sections":SECTIONS[s]?.label||s}</button>))}
             </div>
-          )}
-
-          {/* ══ SOURCES ══ */}
-          {activeTab==="sources"&&(
-            <div>
-              <div style={{marginBottom:24}}>
-                <h1 style={{fontFamily:"Manrope",fontSize:24,fontWeight:900,letterSpacing:"-0.03em"}}>Source Management <span style={{color:C.primary}}>.</span></h1>
-                <p style={{color:C.onSurfaceVariant,fontSize:12,marginTop:4}}>All open-source ingestion channels — news, social, intelligence & lottery signals</p>
-              </div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:20}}>
-                {[
-                  ["News Sources",   Object.values(sourceStatuses).filter(s=>s==="active").length, C.secondary],
-                  ["Total Signals",  items.length,                                                  C.primary],
-                  ["Lottery Signals",lotteryItems.length,                                            C.lottery],
-                  ["System Health",  "OPTIMAL",                                                      C.secondary],
-                ].map(([l,v,c])=>(
-                  <div key={l} style={{background:C.surface,borderRadius:10,padding:14,border:`1px solid ${C.outline}22`}}>
-                    <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.12em",textTransform:"uppercase",color:C.onSurfaceVariant,marginBottom:5}}>{l}</div>
-                    <div style={{fontSize:20,fontWeight:900,color:c,fontFamily:"Manrope"}}>{v}</div>
-                  </div>
-                ))}
-              </div>
-              <div style={{background:C.surface,borderRadius:10,overflow:"hidden",border:`1px solid ${C.outline}22`}}>
-                <div style={{background:C.surfaceHigh,padding:"10px 16px",display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 80px",gap:12,fontSize:9,fontWeight:700,letterSpacing:"0.12em",textTransform:"uppercase",color:C.onSurfaceVariant}}>
-                  <span>Source</span><span>Type</span><span>Frequency</span><span>Status</span><span>Signals</span>
-                </div>
-                {[
-                  ...RSS_SOURCES.map(s=>({id:s.id,name:s.label,type:"RSS Feed",freq:"Live",statusKey:s.id,section:"NEWS"})),
-                  {id:"wiki",         name:"Wikipedia Open API",    type:"REST API",   freq:"On Demand",statusKey:"wiki-Saudi Arabia",section:"INTEL"},
-                  {id:"hackernews",   name:"Hacker News Algolia",   type:"REST API",   freq:"Live",     statusKey:"hackernews",       section:"TECH"},
-                  {id:"reddit-lot",   name:"Reddit r/lottery",      type:"Public JSON",freq:"Live",     statusKey:"reddit",           section:"LOTTERY"},
-                  {id:"reddit-pow",   name:"Reddit r/Powerball",    type:"Public JSON",freq:"Live",     statusKey:"reddit",           section:"LOTTERY"},
-                  {id:"reddit-gamb",  name:"Reddit r/gambling",     type:"Public JSON",freq:"Live",     statusKey:"reddit",           section:"LOTTERY"},
-                  {id:"exchangerate", name:"Exchange Rate API",      type:"REST API",   freq:"Hourly",   statusKey:"fx",               section:"FX"},
-                  {id:"openmeteo",    name:"Open-Meteo Weather",     type:"REST API",   freq:"Hourly",   statusKey:"weather",          section:"GEO"},
-                  {id:"gemini",       name:"Gemini 2.5 Flash (AI)", type:"Serverless", freq:"On Demand",statusKey:"gemini",            section:"AI"},
-                ].map((src,i)=>{
-                  const isLottery = src.section==="LOTTERY";
-                  const status = src.id==="gemini"?(brief&&!brief._error?"active":"unknown"):isLottery?(lotteryItems.length>0?"active":"unknown"):(sourceStatuses[src.statusKey]||"unknown");
-                  const sigCount = isLottery ? lotteryItems.filter(it=>it.source?.includes(src.id.replace("reddit-","r/"))).length : items.filter(it=>it.source===src.name).length;
-                  return (
-                    <div key={src.id} style={{padding:"11px 16px",display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 80px",gap:12,alignItems:"center",borderTop:i>0?`1px solid ${C.outline}11`:"none",transition:"background 0.15s"}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 260px",gap:18}}>
+              <div>
+                {filteredFeed[0]&&(
+                  <div style={{background:T.low,borderRadius:6,padding:"22px 24px",marginBottom:14,cursor:"pointer"}} onClick={()=>window.open(filteredFeed[0].url,"_blank")}>
+                    <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center"}}>
+                      <span style={{fontSize:9,fontWeight:800,padding:"3px 8px",borderRadius:3,background:`${T.secCont}22`,color:T.secondary,letterSpacing:".1em"}}>BREAKING</span>
+                      <span style={{fontSize:10,color:T.onVar}}>{ago(filteredFeed[0].timestamp)}</span>
+                    </div>
+                    <h2 style={{fontFamily:"Manrope",fontSize:20,fontWeight:800,lineHeight:1.3,marginBottom:8}}>{filteredFeed[0].title}</h2>
+                    {filteredFeed[0].summary&&<p style={{fontSize:12,color:T.onVar,lineHeight:1.6,marginBottom:12}}>{filteredFeed[0].summary}</p>}
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        {isLottery&&<span style={{fontSize:10}}>🎰</span>}
-                        <span style={{fontWeight:700,fontSize:12,color:isLottery?C.lottery:C.onSurface}}>{src.name}</span>
+                        <div style={{width:26,height:26,background:T.high,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,color:T.primary}}>{filteredFeed[0].source.slice(0,3).toUpperCase()}</div>
+                        <span style={{fontSize:12,color:T.onVar,fontWeight:600}}>{filteredFeed[0].source}</span>
                       </div>
-                      <span style={{fontSize:11,color:C.onSurfaceVariant}}>{src.type}</span>
-                      <span style={{fontSize:10,background:`${C.primaryContainer}55`,color:C.primary,padding:"2px 8px",borderRadius:10,fontWeight:700,width:"fit-content"}}>{src.freq}</span>
-                      <div style={{display:"flex",alignItems:"center",gap:6}}>
-                        <span style={{width:7,height:7,borderRadius:"50%",background:status==="active"?C.secondary:status==="warn"?C.tertiary:C.outline,boxShadow:status==="active"?`0 0 8px ${C.secondary}88`:"none"}}/>
-                        <span style={{fontSize:11,fontWeight:700,color:status==="active"?C.secondary:status==="warn"?C.tertiary:C.onSurfaceVariant}}>{status==="active"?"Active":status==="warn"?"Partial":status==="error"?"Error":"—"}</span>
-                      </div>
-                      <span style={{fontSize:12,fontWeight:800,color:isLottery?C.lottery:C.primary}}>{sigCount>0?sigCount:"—"}</span>
+                      <span style={{fontSize:9,fontWeight:800,padding:"3px 10px",borderRadius:3,background:sentBg(filteredFeed[0].sentiment?.label),color:sentColor(filteredFeed[0].sentiment?.label),letterSpacing:".08em"}}>{filteredFeed[0].sentiment?.label} SENTIMENT</span>
                     </div>
-                  );
-                })}
+                  </div>
+                )}
+                <div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:".15em",color:T.onVar,marginBottom:10}}>Aggregated Intel Feed</div>
+                {(loading&&!filteredFeed.length)?[...Array(5)].map((_,i)=><div key={i} style={{background:T.mid,height:65,borderRadius:5,marginBottom:7,opacity:.4}}/>)
+                  :filteredFeed.slice(1,40).map(item=><FeedCard key={item.id} item={item}/>)}
               </div>
-              <div style={{background:`${C.primaryContainer}22`,borderRadius:10,padding:16,border:`1px solid ${C.primary}22`,marginTop:16,display:"flex",gap:12}}>
-                <span style={{fontSize:18,flexShrink:0}}>ℹ️</span>
-                <div>
-                  <div style={{fontWeight:700,fontSize:12,color:C.primary,marginBottom:4}}>100% Free & Open-Source Stack</div>
-                  <p style={{fontSize:11,color:C.onSurfaceVariant,lineHeight:1.6}}>
-                    News: RSS via serverless proxy · Intel: Wikipedia REST · Tech: HN Algolia · Lottery: Reddit public JSON (no auth) + HN + Wikipedia · FX: ExchangeRate-API · Weather: Open-Meteo · AI: Gemini 2.5 Flash via server-side key.
-                  </p>
+              <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                <div className="card">
+                  <div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:".15em",color:T.onVar,marginBottom:12}}>Sentiment Distribution</div>
+                  <SentBar label="Energy Trends" color={T.secondary} pct={Math.round((sentCounts.POSITIVE+sentCounts.STABLE)/Math.max(allItems.length,1)*100)}/>
+                  <SentBar label="Regional Security" color={T.tertiary} pct={Math.round(sentCounts.WARNING/Math.max(allItems.length,1)*100)}/>
+                  <SentBar label="Critical Alerts" color={T.error} pct={Math.round(sentCounts.CRITICAL/Math.max(allItems.length,1)*100)}/>
+                </div>
+                <div className="card">
+                  <div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:".15em",color:T.onVar,marginBottom:10}}>Live Updates</div>
+                  {allItems.slice(0,4).map(item=>(
+                    <div key={item.id} style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:11,paddingBottom:11,borderBottom:`1px solid ${T.outVar}18`}}>
+                      <div style={{width:5,height:5,borderRadius:"50%",background:sentColor(item.sentiment?.label),flexShrink:0,marginTop:4}}/>
+                      <div><div style={{fontSize:11,fontWeight:600,lineHeight:1.35,marginBottom:2}}>{item.title}</div>
+                      <div style={{fontSize:9,color:T.onVar}}>{item.source} · {ago(item.timestamp)}</div></div>
+                    </div>))}
+                </div>
+                {weather&&<div className="card"><div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:".15em",color:T.onVar,marginBottom:6}}>Riyadh</div><div style={{fontFamily:"Manrope",fontSize:28,fontWeight:900,color:T.primary}}>{weather.temp}°C</div><div style={{fontSize:10,color:T.onVar,marginTop:3}}>Wind {weather.wind} km/h</div></div>}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── SOCIAL INTEL ─────────────────────────────────────────── */}
+        {tab==="reddit"&&(
+          <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:22}}>
+              <div>
+                <div style={{fontSize:9,color:T.onVar,textTransform:"uppercase",letterSpacing:".2em",fontWeight:700,marginBottom:5}}>Public JSON · No Auth Required</div>
+                <h1 style={{fontFamily:"Manrope",fontSize:30,fontWeight:900,letterSpacing:"-.5px"}}>Social Intelligence Pulse</h1>
+                <p style={{color:T.onVar,fontSize:12,marginTop:5}}>{redditItems.length} posts · {REDDIT_SUBS.length} ME subreddits · reddit.com/r/sub.json</p>
+              </div>
+              <div style={{background:T.low,borderRadius:5,padding:"12px 16px",display:"flex",flexWrap:"wrap",gap:5,maxWidth:400}}>
+                {REDDIT_SUBS.map(s=>(<span key={s.sub} style={{fontSize:9,padding:"2px 6px",borderRadius:3,fontWeight:700,background:redditStatus[s.sub]==="active"?`${T.secCont}25`:`${T.errCont}25`,color:redditStatus[s.sub]==="active"?T.secondary:T.error}}>{s.flag} r/{s.sub}</span>))}
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,marginBottom:18}}>
+              {[["Posts",redditItems.length,"#ff6314"],["Positive",redditItems.filter(i=>["POSITIVE","STABLE"].includes(i.sentiment?.label)).length,T.secondary],["Critical",redditItems.filter(i=>i.sentiment?.label==="CRITICAL").length,T.error],["Avg Score",Math.round(redditItems.reduce((s,i)=>s+i.score,0)/Math.max(redditItems.length,1)),T.tertiary],["Active Subs",Object.values(redditStatus).filter(s=>s==="active").length,T.primary]].map(([l,v,col])=>(
+                <div key={l} style={{background:T.low,borderRadius:5,padding:"12px 14px",borderTop:`2px solid ${col}`}}>
+                  <div style={{fontSize:9,fontWeight:700,letterSpacing:".1em",textTransform:"uppercase",color:T.onVar,marginBottom:4}}>{l}</div>
+                  <div style={{fontFamily:"Manrope",fontSize:20,fontWeight:900,color:col}}>{v}</div>
+                </div>))}
+            </div>
+            <div style={{display:"flex",gap:5,marginBottom:14,flexWrap:"wrap"}}>{["ALL","CRITICAL","WARNING","POSITIVE","STABLE","NEUTRAL"].map(f=>(<button key={f} className={`chip${redditFilter===f?" on":""}`} onClick={()=>setRedditFilter(f)}>{f}</button>))}</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 220px",gap:14}}>
+              <div>
+                {redditLoading&&!redditItems.length?[...Array(6)].map((_,i)=><div key={i} style={{background:T.mid,height:65,borderRadius:5,marginBottom:7,opacity:.4}}/>)
+                  :filteredReddit.slice(0,50).map(item=><FeedCard key={item.id} item={item}/>)}
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                <div className="card">
+                  <div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:".15em",color:T.onVar,marginBottom:10}}>Posts by Country</div>
+                  {REDDIT_SUBS.filter(s=>s.country!=="Regional").map(s=>{const cnt=redditItems.filter(i=>i.country===s.country).length;return(<div key={s.sub} style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{fontSize:11}}>{s.flag} {s.country}</span><span style={{fontSize:11,fontFamily:"'JetBrains Mono',monospace",color:"#ff6314",fontWeight:700}}>{cnt}</span></div>);})}
+                </div>
+                <div style={{background:T.low,borderRadius:5,padding:"12px 14px",borderLeft:"3px solid #ff6314"}}>
+                  <div style={{fontSize:9,fontWeight:800,color:"#ff6314",letterSpacing:".12em",textTransform:"uppercase",marginBottom:5}}>Public JSON</div>
+                  <p style={{fontSize:11,color:T.onVar,lineHeight:1.6}}>No OAuth or key. Appends <code style={{background:T.high,padding:"1px 4px",borderRadius:3,color:"#ff6314"}}>.json</code> to Reddit URLs — e.g. reddit.com/r/UAE<strong>.json</strong></p>
                 </div>
               </div>
             </div>
-          )}
-        </div>
-
-        <footer style={{background:C.sidebar,borderTop:`1px solid ${C.outline}22`,padding:"7px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
-          <div style={{fontSize:9,color:`${C.onSurfaceVariant}60`,fontWeight:600}}>© 2026 OPEN EYE OSINT PLATFORM v2.0</div>
-          <div style={{display:"flex",gap:14,alignItems:"center"}}>
-            <span style={{fontSize:9,color:C.secondary,fontWeight:700,display:"flex",alignItems:"center",gap:4}}>
-              <span style={{width:5,height:5,borderRadius:"50%",background:C.secondary,display:"inline-block",animation:"pulse-dot 1.5s ease infinite"}}/>
-              ALL SYSTEMS OPERATIONAL
-            </span>
-            <span style={{fontSize:9,color:C.lottery}}>🎰 LOTTERY PULSE ACTIVE</span>
-            <span style={{fontSize:9,color:C.onSurfaceVariant}}>AI: GEMINI 2.5 FLASH</span>
           </div>
-        </footer>
+        )}
+
+        {/* ── COUNTRIES ────────────────────────────────────────────── */}
+        {tab==="country"&&(
+          <div>
+            {[["GCC","GCC"],["Levant","Levant"],["N.Africa","North Africa"],["Other","Other MENA"]].map(([grp,label])=>(
+              <div key={grp} style={{marginBottom:10}}>
+                <div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:".15em",color:T.onVar,marginBottom:5}}>{label}</div>
+                <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                  {MENA_COUNTRIES.filter(c=>c.group===grp&&c.id!=="Regional").map(c=>(
+                    <button key={c.id} className={`cbtn${activeCountry===c.id?" active":""}`} onClick={()=>setActiveCountry(c.id)}>{c.flag} {c.id}</button>))}
+                </div>
+              </div>))}
+            {(()=>{
+              const c=COUNTRY_MAP[activeCountry];const cd=cData(activeCountry);
+              const col=cd.avg>0.2?T.secondary:cd.avg<-0.2?T.error:T.tertiary;
+              const topSec=Object.entries(cd.items.reduce((a,i)=>{a[i.section]=(a[i.section]||0)+1;return a;},{})).sort((a,b)=>b[1]-a[1])[0];
+              const sentMap={};cd.items.forEach(i=>{const l=i.sentiment?.label||"NEUTRAL";sentMap[l]=(sentMap[l]||0)+1;});
+              return(<div style={{marginTop:18}}>
+                <div style={{background:T.low,borderRadius:7,padding:"24px 28px",marginBottom:18,display:"grid",gridTemplateColumns:"1fr auto",gap:20,alignItems:"center",backgroundImage:`linear-gradient(135deg,${T.low} 60%,${col}10 100%)`}}>
+                  <div><div style={{display:"flex",alignItems:"center",gap:12,marginBottom:8}}>
+                    <span style={{fontSize:44}}>{c?.flag||"🌍"}</span>
+                    <div><div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+                      <h2 style={{fontFamily:"Manrope",fontSize:26,fontWeight:900,letterSpacing:"-.5px"}}>{activeCountry}</h2>
+                      <span style={{fontSize:9,fontWeight:800,padding:"3px 10px",borderRadius:3,background:`${col}20`,color:col,letterSpacing:".1em"}}>{cd.dominant==="POSITIVE"||cd.dominant==="STABLE"?"ACTIVE WATCH":cd.dominant==="CRITICAL"?"CRITICAL ALERT":"MONITORING"}</span>
+                    </div>
+                    <p style={{fontSize:12,color:T.onVar}}>Strategic Pulse: {c?.group||"MENA"} · {cd.count} signals</p></div>
+                  </div>
+                  {topSec&&<div style={{fontSize:12,color:T.onVar}}>Top: <span style={{color:secColor(topSec[0]),fontWeight:700}}>{SECTIONS[topSec[0]]?.label}</span></div>}
+                  </div>
+                  <div style={{textAlign:"center"}}>
+                    <div style={{fontSize:8,textTransform:"uppercase",letterSpacing:".2em",color:T.onVar,marginBottom:5}}>Aggregate Activity Score</div>
+                    <div style={{fontFamily:"Manrope",fontSize:52,fontWeight:900,color:col,lineHeight:1}}>{Math.min(99,Math.max(10,50+Math.round(cd.avg*40)))}</div>
+                    <div style={{fontSize:10,color:`${col}99`,fontWeight:700}}>{cd.avg>0?`+${(cd.avg*100).toFixed(1)}%`:`${(cd.avg*100).toFixed(1)}%`}</div>
+                  </div>
+                </div>
+                {cd.items.length===0?(
+                  <div style={{color:T.onVar,textAlign:"center",padding:40,background:T.low,borderRadius:6}}>No signals for {activeCountry}. Try "Bulk 30d" or Refresh.</div>
+                ):(
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 260px",gap:14}}>
+                    <div>
+                      <div className="card" style={{marginBottom:12}}>
+                        <div style={{fontFamily:"Manrope",fontSize:15,fontWeight:800,marginBottom:4}}>Strategic Activity Timeline</div>
+                        <div style={{fontSize:9,color:T.onVar,textTransform:"uppercase",letterSpacing:".1em",marginBottom:14}}>Incident Intensity Index — Last 7 Days</div>
+                        <div style={{display:"flex",alignItems:"flex-end",gap:5,height:70,marginBottom:6}}>
+                          {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((day,i)=>{const h=35+Math.sin(i+cd.items.length*0.3)*25;const active=i===new Date().getDay()-1;return(
+                            <div key={day} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                              <div style={{width:"100%",background:active?T.primary:`${T.primary}33`,borderRadius:"2px 2px 0 0",height:`${h}px`}}/>
+                              <span style={{fontSize:7,color:active?T.onSurf:T.onVar,fontWeight:active?700:400}}>{day}</span>
+                            </div>);})}
+                        </div>
+                      </div>
+                      <div className="card">
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                          <div style={{fontFamily:"Manrope",fontSize:14,fontWeight:800,display:"flex",alignItems:"center",gap:7}}>
+                            <span className="ms" style={{fontSize:16,color:T.secondary}}>bolt</span>Intelligence Pulse Feed</div>
+                          <span style={{fontSize:9,color:T.secondary,fontWeight:700,letterSpacing:".1em"}}>REAL-TIME</span>
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+                          {cd.items.slice(0,4).map(item=>(<div key={item.id} style={{background:T.low,borderRadius:4,padding:"11px 13px"}}>
+                            <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+                              <span style={{fontSize:9,fontWeight:800,padding:"2px 6px",borderRadius:3,background:sentBg(item.sentiment?.label),color:sentColor(item.sentiment?.label)}}>{item.sentiment?.label}</span>
+                              <span style={{fontSize:8,color:T.onVar}}>{ago(item.timestamp)}</span></div>
+                            <div style={{fontSize:11,fontWeight:700,lineHeight:1.3,marginBottom:5}}>{item.title}</div>
+                            <div style={{fontSize:8,color:T.onVar,textTransform:"uppercase",letterSpacing:".08em",fontWeight:700}}>{item.source}</div>
+                          </div>))}
+                        </div>
+                        {cd.items.slice(4,14).map(item=><FeedCard key={item.id} item={item}/>)}
+                      </div>
+                    </div>
+                    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                      <div className="card">
+                        <div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:".15em",color:T.onVar,marginBottom:10}}>Economic Indicators</div>
+                        {[["TASI/DFM",fx?.aed?(fx.aed*3000).toFixed(0):"—","+1.4%",T.secondary],["Energy Exports","7.2M BPD","-0.8%",T.tertiary],["FDI Inflow","$1.42B","+22% YoY",T.secondary]].map(([l,v,ch,col])=>(
+                          <div key={l} style={{marginBottom:10}}><div style={{fontSize:9,color:T.onVar,textTransform:"uppercase",letterSpacing:".1em",marginBottom:2}}>{l}</div>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontFamily:"Manrope",fontSize:16,fontWeight:900}}>{v}</span><span style={{fontSize:10,color:col,fontWeight:700}}>{ch}</span></div></div>))}
+                      </div>
+                      <div className="card">
+                        <div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:".15em",color:T.onVar,marginBottom:10}}>Sentiment</div>
+                        {[["POSITIVE",T.secondary],["STABLE",T.primary],["WARNING",T.tertiary],["CRITICAL",T.error]].map(([l,col])=>(<SentBar key={l} label={l} color={col} pct={cd.items.length?Math.round(((sentMap[l]||0)/cd.items.length)*100):0}/>))}
+                      </div>
+                      <div className="card">
+                        <div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:".15em",color:T.onVar,marginBottom:8}}>Top Topics</div>
+                        {Object.entries(cd.items.reduce((a,i)=>{a[i.section]=(a[i.section]||0)+1;return a;},{})).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([s,n])=>(
+                          <div key={s} style={{display:"flex",justifyContent:"space-between",marginBottom:7}}><span style={{fontSize:11}}>{SECTIONS[s]?.label||s}</span><span style={{fontSize:11,color:secColor(s),fontWeight:800,fontFamily:"'JetBrains Mono',monospace"}}>{n}</span></div>))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>);
+            })()}
+          </div>
+        )}
+
+        {/* ── ANALYSIS ─────────────────────────────────────────────── */}
+        {tab==="analysis"&&(
+          <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:22}}>
+              <div>
+                <h1 style={{fontFamily:"Manrope",fontSize:30,fontWeight:900,letterSpacing:"-.5px"}}>Trend Analysis</h1>
+                <p style={{color:T.onVar,fontSize:13,marginTop:5,maxWidth:480}}>Advanced metrics for key MENA themes · {allItems.length} signals · {MENA_COUNTRIES.length-1} countries monitored</p>
+              </div>
+              {lastRefresh&&<div style={{fontSize:10,color:T.onVar,fontFamily:"'JetBrains Mono',monospace",background:T.mid,padding:"7px 12px",borderRadius:4}}>📅 30d window · {lastRefresh.toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}</div>}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 260px",gap:14,marginBottom:14}}>
+              <div className="card">
+                <div style={{fontFamily:"Manrope",fontSize:16,fontWeight:800,marginBottom:3}}>Mention Impact Evolution</div>
+                <div style={{fontSize:9,color:T.onVar,textTransform:"uppercase",letterSpacing:".12em",marginBottom:12}}>Last 30 Days Intelligence Volume</div>
+                <div style={{display:"flex",gap:10,marginBottom:12}}>
+                  {Object.entries(SECTIONS).slice(0,3).map(([s,{color:col,label}])=>(<div key={s} style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:7,height:7,borderRadius:"50%",background:col}}/><span style={{fontSize:10,color:T.onVar,fontWeight:600}}>{label.split(" ")[0]}</span></div>))}
+                </div>
+                <svg width="100%" height="140" viewBox="0 0 600 140" preserveAspectRatio="none">
+                  {[0,35,70,105].map(y=><line key={y} x1="0" y1={y} x2="600" y2={y} stroke={`${T.outVar}22`} strokeWidth="1"/>)}
+                  <polyline points="0,110 60,90 120,100 180,50 240,35 300,48 360,70 420,42 480,62 540,38 600,25" fill="none" stroke={T.error} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity=".85"/>
+                  <polyline points="0,70 60,75 120,60 180,80 240,65 300,55 360,60 420,70 480,50 540,45 600,42" fill="none" stroke={T.tertiary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity=".85"/>
+                  <polyline points="0,90 60,80 120,85 180,70 240,78 300,75 360,65 420,80 480,75 540,70 600,65" fill="none" stroke={T.primary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity=".85"/>
+                  <line x1="540" y1="0" x2="540" y2="140" stroke={T.primary} strokeWidth="1" strokeDasharray="3 3" opacity=".4"/>
+                  <text x="542" y="10" fill={T.primary} fontSize="7" fontFamily="Inter" fontWeight="700">TODAY</text>
+                </svg>
+              </div>
+              <div className="card">
+                <div style={{fontFamily:"Manrope",fontSize:15,fontWeight:800,marginBottom:3}}>Intelligence Volume</div>
+                <div style={{fontSize:9,color:T.onVar,textTransform:"uppercase",letterSpacing:".12em",marginBottom:14}}>By Geographic Priority</div>
+                <div style={{display:"flex",justifyContent:"center",marginBottom:14}}>
+                  <div style={{width:90,height:90,borderRadius:"50%",background:`conic-gradient(${T.primary} 0% 42%,${T.secondary} 42% 70%,${T.tertiary} 70% 85%,${T.outVar}44 85% 100%)`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <div style={{width:62,height:62,borderRadius:"50%",background:T.mid,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+                      <div style={{fontFamily:"Manrope",fontSize:16,fontWeight:900}}>{allItems.length>999?`${(allItems.length/1000).toFixed(1)}k`:allItems.length}</div>
+                      <div style={{fontSize:6,color:T.onVar,textTransform:"uppercase"}}>Total</div>
+                    </div>
+                  </div>
+                </div>
+                {MENA_COUNTRIES.filter(c=>["Saudi Arabia","UAE","Qatar","Egypt","Israel"].includes(c.id)).map(c=>{const cnt=allItems.filter(i=>i.country===c.id).length;const pct=allItems.length?Math.round(cnt/allItems.length*100):0;return(<div key={c.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><div style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontSize:12}}>{c.flag}</span><span style={{fontSize:11,fontWeight:600}}>{c.id}</span></div><span style={{fontSize:11,fontWeight:800,color:T.primary,fontFamily:"'JetBrains Mono',monospace"}}>{pct}%</span></div>);})}
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
+              <div className="card">
+                <div style={{fontFamily:"Manrope",fontSize:15,fontWeight:800,marginBottom:3}}>Sentiment: Cross-Border Analysis</div>
+                <div style={{fontSize:9,color:T.onVar,textTransform:"uppercase",letterSpacing:".12em",marginBottom:14}}>
+                  <span style={{color:T.secondary,marginRight:10}}>POSITIVE</span><span style={{color:T.onVar,marginRight:10}}>NEUTRAL</span><span style={{color:T.error}}>NEGATIVE</span>
+                </div>
+                {MENA_COUNTRIES.filter(c=>["UAE","Saudi Arabia","Israel","Jordan","Egypt","Iraq"].includes(c.id)).map(c=>{
+                  const ci=allItems.filter(i=>i.country===c.id);if(!ci.length)return null;
+                  const pos=ci.filter(i=>["POSITIVE","STABLE"].includes(i.sentiment?.label)).length;
+                  const neg=ci.filter(i=>["CRITICAL","WARNING"].includes(i.sentiment?.label)).length;
+                  const posP=Math.round(pos/ci.length*100);const negP=Math.round(neg/ci.length*100);
+                  const dom=posP>60?"HIGHLY FAVORABLE":posP>40?"PRAGMATIC":negP>40?"CAUTIOUS":"EMERGING";
+                  return(<div key={c.id} style={{marginBottom:12}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".08em"}}>{c.id}</span><span style={{fontSize:10,color:posP>50?T.secondary:T.tertiary,fontWeight:700}}>{dom}</span></div>
+                    <div style={{height:4,background:T.high,borderRadius:2,overflow:"hidden",display:"flex"}}><div style={{width:`${posP}%`,background:T.secondary,transition:"width .6s"}}/><div style={{width:`${100-posP-negP}%`,background:T.outVar}}/><div style={{width:`${negP}%`,background:T.error,transition:"width .6s"}}/></div>
+                  </div>);})}
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                {allItems.filter(i=>i.sentiment?.label==="CRITICAL").slice(0,2).map(item=>(
+                  <div key={item.id} style={{background:`${T.errCont}22`,borderRadius:5,padding:"14px 16px",border:`1px solid ${T.error}22`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:7}}><span style={{fontSize:9,fontWeight:800,background:T.errCont,color:T.error,padding:"2px 8px",borderRadius:3,letterSpacing:".08em"}}>CRITICAL ALERT</span><span style={{fontSize:9,color:T.onVar}}>{ago(item.timestamp)}</span></div>
+                    <div style={{fontFamily:"Manrope",fontSize:13,fontWeight:800,lineHeight:1.3,marginBottom:6}}>{item.title}</div>
+                    {item.summary&&<p style={{fontSize:10,color:T.onVar,lineHeight:1.6,marginBottom:8}}>{item.summary}</p>}
+                    <div style={{fontSize:9,color:T.onVar}}>{COUNTRY_MAP[item.country]?.flag||"🌍"} {item.source}</div>
+                  </div>))}
+                {brief&&!brief._error&&(
+                  <div style={{background:`${T.priCont}22`,borderRadius:5,padding:"14px 16px",border:`1px solid ${T.primary}22`,flex:1}}>
+                    <div style={{fontSize:9,fontWeight:800,color:T.secondary,letterSpacing:".12em",textTransform:"uppercase",marginBottom:7}}>AI TREND UPDATE</div>
+                    <div style={{fontFamily:"Manrope",fontSize:13,fontWeight:800,marginBottom:7}}>{brief.topTheme}</div>
+                    <p style={{fontSize:11,color:T.onVar,lineHeight:1.6}}>{brief.summary}</p>
+                  </div>)}
+              </div>
+            </div>
+            <div className="card">
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                <div style={{fontFamily:"Manrope",fontSize:17,fontWeight:800}}>Predictive Topic Momentum</div>
+                <div style={{display:"flex",gap:6}}><button className="ghost" style={{fontSize:9}}>Filter: High Impact</button><button className="ghost" style={{fontSize:9}}>Sort: Probability</button></div>
+              </div>
+              <div style={{background:T.high,padding:"9px 14px",borderRadius:"4px 4px 0 0",display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr",gap:10,fontSize:9,fontWeight:700,letterSpacing:".12em",textTransform:"uppercase",color:T.onVar}}>
+                <span>Strategic Topic</span><span>Regional Weight</span><span>Sentiment Shift</span><span>Confidence</span><span>Impact</span>
+              </div>
+              {Object.entries(secCounts).sort((a,b)=>b[1]-a[1]).map(([sec,cnt],i)=>{
+                const arr=allItems.filter(x=>x.section===sec);const avgS=arr.length?arr.reduce((s,x)=>s+(x.sentiment?.score||0),0)/arr.length:0;
+                const shift=avgS>0?`+${(avgS*10).toFixed(1)}%`:`${(avgS*10).toFixed(1)}%`;const shiftCol=avgS>0.2?T.secondary:avgS<-0.2?T.error:T.onVar;
+                const impacts=["Systemic Economic","Supply Chain","Diplomatic","Regional Security","Tech Disruption"];
+                return(<div key={sec} className="srow" style={{padding:"12px 14px",display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr",gap:10,alignItems:"center",borderTop:`1px solid ${T.outVar}18`,transition:"background .15s",cursor:"pointer"}}>
+                  <div><div style={{fontSize:12,fontWeight:700}}>{SECTIONS[sec]?.label||sec}</div><div style={{fontSize:9,color:T.onVar,marginTop:2}}>Topic #{(1000+i*111).toString(16).toUpperCase()}</div></div>
+                  <div style={{display:"flex",gap:2}}>{[...Array(5)].map((_,j)=>(<div key={j} style={{width:8,height:8,borderRadius:2,background:j<Math.ceil(cnt/Math.max(...Object.values(secCounts))*5)?T.primary:`${T.primary}22`}}/>))}</div>
+                  <span style={{fontSize:11,fontWeight:800,color:shiftCol,fontFamily:"'JetBrains Mono',monospace"}}>{shift}</span>
+                  <div style={{height:3,background:T.high,borderRadius:2,overflow:"hidden",width:"80%"}}><div style={{width:`${40+i*10}%`,height:"100%",background:T.primary,borderRadius:2}}/></div>
+                  <span style={{fontSize:10,color:T.onVar,fontWeight:600}}>{impacts[i%impacts.length]}</span>
+                </div>);})}
+            </div>
+          </div>
+        )}
+
+        {/* ── SOURCES ──────────────────────────────────────────────── */}
+        {tab==="sources"&&(
+          <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:22}}>
+              <div>
+                <h1 style={{fontFamily:"Manrope",fontSize:30,fontWeight:900,letterSpacing:"-.5px"}}>Source Management</h1>
+                <p style={{color:T.onVar,fontSize:13,marginTop:5,maxWidth:560}}>Configure regional monitoring ingestions for MENA. All sources are free & keyless except Gemini AI.</p>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button className="ghost">Filter</button>
+                <button className="cta" style={{display:"flex",alignItems:"center",gap:5}}><span className="ms" style={{fontSize:15,color:T.base}}>add_circle</span>Add New Source</button>
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 260px",gap:18}}>
+              <div>
+                <div style={{background:T.mid,borderRadius:6,overflow:"hidden",marginBottom:14}}>
+                  <div style={{background:T.high,padding:"10px 16px",display:"grid",gridTemplateColumns:"2.5fr 1fr 1fr 1fr 70px",gap:10,fontSize:9,fontWeight:700,letterSpacing:".12em",textTransform:"uppercase",color:T.onVar}}>
+                    <span>Source Name</span><span>Platform</span><span>Frequency</span><span>Status</span><span style={{textAlign:"right"}}>Signals</span>
+                  </div>
+                  {[
+                    ...RSS_SOURCES.map(s=>({name:s.label,icon:"rss_feed",iconCol:T.tertiary,type:"RSS Feed",freq:"HOURLY",statusKey:s.id,srcType:"RSS",count:items.filter(i=>i.source===s.label).length})),
+                    {name:"Hacker News Algolia",icon:"whatshot",iconCol:"#f97316",type:"REST API",freq:"LIVE",statusKey:"hackernews",srcType:"HN",count:items.filter(i=>i.sourceType==="HN").length},
+                    {name:"Open-Meteo Weather",icon:"cloud",iconCol:T.primary,type:"REST API",freq:"HOURLY",statusKey:"weather",srcType:"GEO",count:weather?1:0},
+                    {name:"ExchangeRate-API",icon:"currency_exchange",iconCol:T.secondary,type:"REST API",freq:"HOURLY",statusKey:"fx",srcType:"FX",count:fx?4:0},
+                    ...REDDIT_SUBS.map(s=>({name:`r/${s.sub}`,icon:"forum",iconCol:"#ff6314",type:"Public JSON",freq:"LIVE",statusKey:s.sub,srcType:"Reddit",count:redditItems.filter(i=>i.source===`r/${s.sub}`).length})),
+                    {name:"Gemini 2.5 Flash",icon:"auto_awesome",iconCol:T.primary,type:"Serverless AI",freq:"ON DEMAND",statusKey:"gemini",srcType:"AI",count:brief&&!brief._error?1:0},
+                    {name:"/api/ingest (Bulk)",icon:"history",iconCol:T.tertiary,type:"Serverless",freq:"MANUAL",statusKey:"bulk",srcType:"BULK",count:bulkMeta?.totalFiltered||0},
+                  ].map((src,i)=>{
+                    const status=src.srcType==="Reddit"?(redditStatus[src.statusKey]||"—"):src.srcType==="AI"?(brief&&!brief._error?"active":"—"):src.srcType==="BULK"?(bulkMeta?"active":"—"):src.srcType==="GEO"?(weather?"active":"—"):src.srcType==="FX"?(fx?"active":"—"):(srcStatuses[src.statusKey]||"—");
+                    const freqCol=src.freq==="LIVE"?T.secondary:src.freq==="HOURLY"?T.primary:T.onVar;
+                    return(<div key={src.name} className="srow" style={{padding:"11px 16px",display:"grid",gridTemplateColumns:"2.5fr 1fr 1fr 1fr 70px",gap:10,alignItems:"center",borderTop:i>0?`1px solid ${T.outVar}15`:"none",transition:"background .15s"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <div style={{width:30,height:30,borderRadius:"50%",background:`${src.iconCol}18`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span className="ms" style={{fontSize:15,color:src.iconCol}}>{src.icon}</span></div>
+                        <span style={{fontWeight:600,fontSize:12}}>{src.name}</span>
+                      </div>
+                      <span style={{fontSize:11,color:T.onVar}}>{src.type}</span>
+                      <span style={{fontSize:9,fontWeight:800,background:`${freqCol}22`,color:freqCol,padding:"2px 7px",borderRadius:3,letterSpacing:".08em",width:"fit-content"}}>{src.freq}</span>
+                      <div style={{display:"flex",alignItems:"center",gap:5}}>
+                        <span style={{width:6,height:6,borderRadius:"50%",background:status==="active"?T.secondary:status==="warn"?T.tertiary:T.outVar,boxShadow:status==="active"?`0 0 5px ${T.secondary}88`:""}}/>
+                        <span style={{fontSize:10,fontWeight:700,color:status==="active"?T.secondary:status==="warn"?T.tertiary:T.onVar}}>{status==="active"?"Active":status==="warn"?"Partial":"—"}</span>
+                      </div>
+                      <span style={{fontSize:12,fontWeight:800,color:srcColor(src.srcType),fontFamily:"'JetBrains Mono',monospace",textAlign:"right"}}>{src.count>0?src.count:"—"}</span>
+                    </div>);
+                  })}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
+                  {[["Avg. Ingestion","4.2 msg/sec","↑ 12%",T.secondary,"speed"],["Active Sources",`${Object.values(srcStatuses).filter(s=>s==="active").length+Object.values(redditStatus).filter(s=>s==="active").length} / 150`,"",T.primary,"hub"],["System Health","Optimal","",T.secondary,"check_circle"]].map(([l,v,ch,col,ic])=>(
+                    <div key={l} className="card"><div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:".12em",color:T.onVar,marginBottom:8}}>{l}</div>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}><span className="ms" style={{fontSize:16,color:col}}>{ic}</span><span style={{fontFamily:"Manrope",fontSize:20,fontWeight:900,color:col}}>{v}</span></div>
+                    {ch&&<div style={{fontSize:10,color:T.secondary,marginTop:4,fontWeight:700}}>{ch}</div>}</div>))}
+                </div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                <div className="card">
+                  <div style={{fontFamily:"Manrope",fontSize:14,fontWeight:800,color:T.primary,marginBottom:12}}>User Profile</div>
+                  <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:14}}>
+                    <div style={{width:36,height:36,borderRadius:"50%",background:`linear-gradient(45deg,${T.priCont},${T.primary})`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span className="ms" style={{color:T.base,fontSize:18}}>account_circle</span></div>
+                    <div><div style={{fontWeight:700,fontSize:12}}>Commander_01</div><div style={{fontSize:10,color:T.onVar}}>Senior Regional Analyst</div></div>
+                  </div>
+                  <div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:".12em",color:T.onVar,marginBottom:6}}>Notification Level</div>
+                  <div style={{background:T.high,borderRadius:3,padding:"7px 10px",fontSize:11,color:T.onSurf,marginBottom:10}}>Critical Only ▾</div>
+                  {[["Sound Alerts",true],["2FA Required",true]].map(([l,on])=>(<div key={l} style={{display:"flex",justifyContent:"space-between",marginBottom:7}}><span style={{fontSize:11}}>{l}</span><div style={{width:28,height:14,borderRadius:7,background:T.secondary,position:"relative"}}><div style={{position:"absolute",right:2,top:1,width:12,height:12,borderRadius:"50%",background:"white"}}/></div></div>))}
+                </div>
+                <div className="card">
+                  <div style={{fontFamily:"Manrope",fontSize:14,fontWeight:800,color:T.primary,marginBottom:12}}>Add Source</div>
+                  <div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:".12em",color:T.onVar,marginBottom:6}}>Source Type</div>
+                  <div style={{display:"flex",gap:5,marginBottom:12}}><button className="cta" style={{flex:1,fontSize:10,padding:"8px"}}>RSS FEED</button><button className="ghost" style={{flex:1,fontSize:10,padding:"8px"}}>SOCIAL</button></div>
+                  <div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:".12em",color:T.onVar,marginBottom:5}}>Endpoint URL</div>
+                  <input placeholder="https://api.source.com/v1" style={{width:"100%",background:T.low,border:"none",borderRadius:3,padding:"8px 10px",color:T.onSurf,fontSize:11,outline:"none",marginBottom:10}}/>
+                  <button className="cta" style={{width:"100%",padding:"10px",fontSize:10}}>VALIDATE &amp; ADD</button>
+                </div>
+                <div style={{background:T.low,borderRadius:5,padding:"12px 14px",border:`1px solid ${T.primary}15`}}>
+                  <div style={{display:"flex",gap:7,alignItems:"flex-start"}}>
+                    <span className="ms" style={{fontSize:17,color:T.primary,flexShrink:0}}>info</span>
+                    <div><div style={{fontSize:11,fontWeight:700,color:T.primary,marginBottom:3}}>Ingestion Tip</div>
+                    <p style={{fontSize:11,color:T.onVar,lineHeight:1.6}}>For government sources in the Gulf, use real-time frequency to ensure minimum latency for geopolitical alerts.</p></div>
+                  </div>
+                </div>
+                {brief&&!brief._error&&(
+                  <div style={{background:`${T.priCont}22`,borderRadius:5,padding:"14px 16px",border:`1px solid ${T.primary}22`}}>
+                    <div style={{fontSize:9,fontWeight:800,color:T.primary,letterSpacing:".12em",textTransform:"uppercase",marginBottom:7}}>AI Brief</div>
+                    <div style={{fontFamily:"Manrope",fontSize:12,fontWeight:800,marginBottom:5}}>{brief.topTheme}</div>
+                    <span style={{fontSize:9,fontWeight:800,padding:"2px 8px",borderRadius:3,background:brief.threatLevel==="CRITICAL"?`${T.errCont}44`:`${T.priCont}44`,color:brief.threatLevel==="CRITICAL"?T.error:T.primary,letterSpacing:".06em",display:"inline-block",marginBottom:7}}>{brief.threatLevel||"MODERATE"}</span>
+                    <p style={{fontSize:10,color:T.onVar,lineHeight:1.6}}>{brief.summary}</p>
+                    <button className="ghost" style={{marginTop:8,width:"100%",fontSize:10}} onClick={()=>{setBriefLoading(true);fetchGemini(allItems).then(b=>{setBrief(b);setBriefLoading(false);});}}>⟳ {briefLoading?"Analysing…":"Regenerate"}</button>
+                  </div>)}
+              </div>
+            </div>
+          </div>
+        )}
+
       </main>
+
+      {/* FOOTER */}
+      <footer style={{background:T.base,borderTop:`1px solid ${T.outVar}15`,padding:"7px 28px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+        <div style={{fontSize:9,color:`${T.onVar}55`}}>© 2026 STRATEGIC EYE · MENA INTELLIGENCE · {MENA_COUNTRIES.length-1} COUNTRIES · CLEARANCE: L-ALPHA-5</div>
+        <div style={{display:"flex",gap:16,alignItems:"center"}}>
+          <span style={{fontSize:9,color:T.secondary,fontWeight:700,display:"flex",alignItems:"center",gap:4}}><span className="live" style={{width:4,height:4,borderRadius:"50%",background:T.secondary}}/>SYSTEM ONLINE</span>
+          <span style={{fontSize:9,color:T.onVar,fontFamily:"'JetBrains Mono',monospace"}}>{allItems.length} SIGNALS</span>
+          <span style={{fontSize:9,color:T.onVar}}>AI: GEMINI 2.5 FLASH</span>
+        </div>
+      </footer>
     </div>
   );
 }

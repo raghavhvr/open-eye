@@ -4,5 +4,16 @@
   "framework": "vite",
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" }
-  ]
+  ],
+  "functions": {
+    "api/ingest.js": {
+      "maxDuration": 60
+    },
+    "api/brief.js": {
+      "maxDuration": 30
+    },
+    "api/rss.js": {
+      "maxDuration": 15
+    }
+  }
 }

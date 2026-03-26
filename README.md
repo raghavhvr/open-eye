@@ -1,100 +1,100 @@
-# 🛰️ Open Eye — OSINT Intelligence Platform
+# 🛰️ HORIZON SENTINEL v3 — MENA Intelligence Platform
 
-Real-time open-source intelligence for the MENA region. Aggregates RSS feeds, Wikipedia, Hacker News, weather, and FX rates — with AI-powered briefings via **Google Gemini 2.5 Flash** (free tier).
-
----
-
-## 🚀 Deploy to Vercel (no CLI needed)
-
-### Step 1 — Push to GitHub
-
-1. Go to [github.com/new](https://github.com/new) and create a **new empty repository** (e.g. `open-eye`)
-2. Upload all these files — drag the folder contents into GitHub's file uploader, or use GitHub Desktop
-3. Commit directly to `main`
-
-### Step 2 — Connect to Vercel
-
-1. Go to [vercel.com](https://vercel.com) → **Add New Project**
-2. Click **Import Git Repository** → select your `open-eye` repo
-3. Vercel auto-detects **Vite** — leave all build settings as-is
-4. Before clicking Deploy, go to **Environment Variables** and add:
-
-| Name | Value |
-|------|-------|
-| `GEMINI_API_KEY` | your key from [aistudio.google.com](https://aistudio.google.com/app/apikey) |
-
-5. Click **Deploy** — done in ~30 seconds ✅
-
-Every `git push` to `main` auto-redeploys.
+Real-time open-source intelligence for the Middle East. Aggregates 7 ME RSS feeds, 10 Reddit subreddits (public JSON, no auth), Hacker News, weather, and FX — with a 30-day parallel bulk ingest and AI briefs via Gemini 2.5 Flash.
 
 ---
 
-## 🔑 Getting a free Gemini API key
+## 🚀 Deploy to Vercel
 
-1. Visit [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
-2. Sign in with your Google account
-3. Click **Create API Key** → select or create a Google Cloud project
-4. Copy the key (starts with `AIza...`)
+1. Push to GitHub
+2. Connect to Vercel → **Import Repository**
+3. Add **one** environment variable:
 
-**Free tier limits:** 15 requests/min · 1,000,000 tokens/day · No billing required
+| Name | Value | Where |
+|------|-------|-------|
+| `GEMINI_API_KEY` | `AIza...` | [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) — **free, 1M tokens/day** |
+
+4. Deploy ✅ — every other source is zero-auth.
+
+> **Vercel plan note:** `api/ingest.js` is configured for 60s max duration — requires the **Pro plan**. On the free Hobby plan the limit is 10s; the ingest may time out for large payloads. Use "Refresh Live" on Hobby, or upgrade to Pro for bulk 30-day ingests.
 
 ---
 
-## 🏗️ Project Structure
+## 📡 Data Sources
 
+| Source | Type | Key? | Free Limit |
+|--------|------|------|-----------|
+| BBC Middle East | RSS | ❌ | Unlimited |
+| Al Jazeera | RSS | ❌ | Unlimited |
+| Reuters World | RSS | ❌ | Unlimited |
+| Arab News | RSS | ❌ | Unlimited |
+| The Guardian | RSS | ❌ | Unlimited |
+| Gulf News | RSS | ❌ | Unlimited |
+| The National UAE | RSS | ❌ | Unlimited |
+| Hacker News Algolia | REST | ❌ | Unlimited |
+| **Reddit (10 ME subs)** | **Public JSON** | **❌** | ~1,000 posts/bulk |
+| Open-Meteo (Weather) | REST | ❌ | Unlimited |
+| ExchangeRate-API (FX) | REST | ❌ | Unlimited |
+| **Gemini 2.5 Flash** | Serverless | **✅ Free key** | 1M tokens/day |
+
+### Reddit Public JSON
+No OAuth, no PRAW, no rate-limit concerns. Direct `.json` API:
 ```
-open-eye/
-├── api/
-│   └── brief.js          ← Vercel serverless function (Gemini proxy)
-├── public/
-│   └── favicon.svg
-├── src/
-│   ├── main.jsx           ← React entry point
-│   └── App.jsx            ← Full application
-├── .env.example           ← Copy to .env.local for local dev
-├── .gitignore
-├── index.html
-├── package.json
-├── vercel.json
-└── vite.config.js
+https://www.reddit.com/r/UAE/top.json?limit=100&t=month      ← bulk (30d)
+https://www.reddit.com/r/UAE/hot.json?limit=15&t=week        ← live refresh
 ```
 
 ---
 
-## 💻 Running Locally
+## ⚡ 30-Day Bulk Ingest
+
+Click **"Bulk Ingest 30d"** in the sidebar. This calls `GET /api/ingest`, which:
+
+1. Fetches all 7 RSS feeds **in parallel**
+2. Fetches all 10 Reddit subs with `top.json?t=month&limit=100` **in parallel** → up to 1,000 posts
+3. Runs 10 targeted HN Algolia queries with a 30-day timestamp filter **in parallel** → up to ~200 stories
+4. Classifies every article (section, country, sentiment) server-side in one pass
+5. Returns a single pre-processed JSON payload with aggregate stats
+6. Cached on Vercel's edge for 30 minutes
+
+Results merge into the live feed — new articles are appended, duplicates dropped.
+
+---
+
+## 🗺️ Dashboard Pages
+
+| Page | What it shows |
+|------|--------------|
+| **Crisis Overview** | Pulse score, KPIs, section breakdown, country sentiment index, trending feed |
+| **Intelligence Feed** | RSS + HN, searchable + filterable by sentiment / section |
+| **Reddit MENA Pulse** | 10 subreddits live, sentiment breakdown, country distribution |
+| **Country Deep-Dive** | Per-country sentiment, top topics, source breakdown, full article list |
+| **AI Brief** | Gemini 2.5 Flash synthesis — threat level, key trends, watch items |
+| **Data Sources** | Live status table, quickstart code |
+
+---
+
+## 🔬 Topic Taxonomy
+
+| Section | Keywords |
+|---------|---------|
+| 🚨 Crisis & Safety | war, conflict, ceasefire, houthi, missile, fire, flood, outbreak… |
+| 💼 Economy & Business | oil, opec, aramco, vision 2030, neom, investment, rent… |
+| 🏛️ Politics & Governance | government, election, diplomacy, sanction, summit, nuclear… |
+| 🌐 Expat & Daily Life | visa, golden visa, cost of living, iqama, traffic, metro… |
+| 🕌 Culture & Society | ramadan, eid, entertainment, education, sports… |
+| 💻 Tech & Innovation | AI, startup, crypto, smart city, solar, g42… |
+
+---
+
+## 💻 Local Development
 
 ```bash
 npm install
 cp .env.example .env.local
-# Edit .env.local and add your GEMINI_API_KEY
-npm run dev
+# Add GEMINI_API_KEY to .env.local
+npm run dev               # http://localhost:5173
+# For /api/* locally:
+vercel dev                # needs Vercel CLI
 ```
 
-Open [http://localhost:5173](http://localhost:5173)
-
-> **Note:** The `/api/brief` serverless function runs locally via `vercel dev` if you have the Vercel CLI. Without it, you can temporarily hardcode the key in `.env.local` and adjust `api/brief.js` to read from `import.meta.env` — but for production always use Vercel env vars.
-
----
-
-## 📡 Data Sources (all free, no keys needed except Gemini)
-
-| Source | Type | What it provides |
-|--------|------|-----------------|
-| BBC Middle East | RSS | Regional news |
-| Reuters World | RSS | Global news |
-| Al Jazeera | RSS | MENA coverage |
-| The Guardian World | RSS | International |
-| FT World | RSS | Finance & markets |
-| Wikipedia REST API | REST | Topic intelligence |
-| Hacker News Algolia | REST | Tech signals |
-| Open-Meteo | REST | Riyadh weather |
-| ExchangeRate-API | REST | SAR / AED / QAR rates |
-| **Gemini 2.5 Flash** | **Serverless** | **AI brief synthesis** |
-
----
-
-## 🔒 Security
-
-- The `GEMINI_API_KEY` is **never sent to the browser** — it lives only in Vercel's server environment
-- All AI calls go through `/api/brief`, a server-side function
-- No user data is stored or logged
