@@ -261,6 +261,59 @@ const MAP_TILES = [];
 for(let y=5;y<=8;y++) for(let x=7;x<=12;x++) MAP_TILES.push(`${CARTO}/4/${x}/${y}.png`);
 
 function MENAMap({items,onCountryClick}){
+  // Zoom state: 1.0 = full MENA view, 1.5 = default (slightly zoomed in), 3.0 = max
+  const [zoom,setZoom]    = useState(1.5);
+  // Pan origin as % of the tile canvas — default centres on Arabian Peninsula
+  const [pan,setPan]      = useState({x:45,y:44});
+  const [dragging,setDragging] = useState(false);
+  const [dragStart,setDragStart] = useState(null);
+  const containerRef = useRef(null);
+
+  const MIN_ZOOM=1.0, MAX_ZOOM=4.0;
+  const clampZoom=z=>Math.min(MAX_ZOOM,Math.max(MIN_ZOOM,z));
+
+  // Zoom in/out around the current pan centre
+  const changeZoom=(delta)=>setZoom(z=>clampZoom(z+delta));
+
+  // Mouse wheel zoom
+  const onWheel=(e)=>{
+    e.preventDefault();
+    const delta=e.deltaY>0?-0.2:0.2;
+    setZoom(z=>clampZoom(z+delta));
+  };
+
+  // Drag to pan
+  const onMouseDown=(e)=>{
+    if(e.button!==0)return;
+    setDragging(true);
+    setDragStart({mx:e.clientX,my:e.clientY,px:pan.x,py:pan.y});
+    e.preventDefault();
+  };
+  const onMouseMove=(e)=>{
+    if(!dragging||!dragStart||!containerRef.current)return;
+    const rect=containerRef.current.getBoundingClientRect();
+    const dx=((dragStart.mx-e.clientX)/rect.width)*100/zoom;
+    const dy=((dragStart.my-e.clientY)/rect.height)*100/zoom;
+    setPan({x:dragStart.px+dx,y:dragStart.py+dy});
+  };
+  const onMouseUp=()=>{setDragging(false);setDragStart(null);};
+
+  // Touch pan support
+  const touchRef = useRef(null);
+  const onTouchStart=(e)=>{
+    if(e.touches.length===1){
+      touchRef.current={tx:e.touches[0].clientX,ty:e.touches[0].clientY,px:pan.x,py:pan.y};
+    }
+  };
+  const onTouchMove=(e)=>{
+    if(!touchRef.current||!containerRef.current||e.touches.length!==1)return;
+    const rect=containerRef.current.getBoundingClientRect();
+    const dx=((touchRef.current.tx-e.touches[0].clientX)/rect.width)*100/zoom;
+    const dy=((touchRef.current.ty-e.touches[0].clientY)/rect.height)*100/zoom;
+    setPan({x:touchRef.current.px+dx,y:touchRef.current.py+dy});
+    e.preventDefault();
+  };
+
   const cData=(cid)=>{
     const ci=items.filter(i=>i.country===cid);
     if(!ci.length)return{count:0,col:T.outVar,dominant:"NEUTRAL"};
@@ -269,87 +322,170 @@ function MENAMap({items,onCountryClick}){
     const col=dom==="CRITICAL"?T.error:dom==="WARNING"?T.tertiary:dom==="POSITIVE"||dom==="STABLE"?T.secondary:T.primary;
     return{count:ci.length,col,dominant:dom};
   };
+
+  // Dot size inversely scales with zoom so dots stay visually consistent
+  const dotScale=1/Math.sqrt(zoom);
+
   return(
-    <div style={{width:"100%",borderRadius:6,overflow:"hidden",border:`1px solid ${T.outVar}22`,position:"relative",background:T.base}}>
-      {/* Tile grid — 6 cols × 4 rows, each 256px → displayed at 50% = 128px */}
-      <div style={{
-        display:"grid",gridTemplateColumns:"repeat(6,1fr)",
-        width:"100%",height:0,paddingBottom:"33.3%",  // aspect = 4rows/6cols = 66.7% but halved
-        position:"relative",overflow:"hidden",
-      }}>
-        {/* Absolute container for tiles */}
-        <div style={{position:"absolute",inset:0,display:"grid",gridTemplateColumns:"repeat(6,1fr)",gridTemplateRows:"repeat(4,1fr)"}}>
-          {MAP_TILES.map((url,i)=>(
-            <img key={i} src={url} alt="" style={{width:"100%",height:"100%",display:"block",objectFit:"cover"}}
-              loading="eager" decoding="async"/>
+    <div ref={containerRef}
+      style={{width:"100%",borderRadius:6,overflow:"hidden",border:`1px solid ${T.outVar}22`,
+        position:"relative",background:T.base,userSelect:"none",
+        cursor:dragging?"grabbing":"grab"}}
+      onWheel={onWheel}
+      onMouseDown={onMouseDown} onMouseMove={onMouseMove}
+      onMouseUp={onMouseUp} onMouseLeave={onMouseUp}
+      onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={()=>{touchRef.current=null;}}>
+
+      {/* Aspect ratio box: 6×4 tiles → 3:2 but we show at 50% height = 33.3% padding */}
+      <div style={{width:"100%",height:0,paddingBottom:"33.3%",position:"relative",overflow:"hidden"}}>
+
+        {/* Zoomable + pannable inner canvas */}
+        <div style={{
+          position:"absolute",inset:0,overflow:"hidden",
+        }}>
+          {/* The actual tile + dot canvas, transformed */}
+          <div style={{
+            position:"absolute",
+            // We expand the inner div to fill based on zoom, anchored to pan centre
+            width:`${100*zoom}%`,
+            height:`${100*zoom}%`,
+            left:`${50-pan.x*zoom}%`,
+            top:`${50-pan.y*zoom}%`,
+            transition:dragging?"none":"left 0.1s,top 0.1s,width 0.2s,height 0.2s",
+          }}>
+            {/* Tile grid */}
+            <div style={{position:"absolute",inset:0,display:"grid",
+              gridTemplateColumns:"repeat(6,1fr)",gridTemplateRows:"repeat(4,1fr)"}}>
+              {MAP_TILES.map((url,i)=>(
+                <img key={i} src={url} alt="" draggable={false}
+                  style={{width:"100%",height:"100%",display:"block",objectFit:"cover",pointerEvents:"none"}}
+                  loading="eager" decoding="async"/>
+              ))}
+            </div>
+
+            {/* Signal dots */}
+            {MAP_COUNTRIES.map(({id,code,x,y})=>{
+              const cd=cData(id);
+              const baseSz=cd.count>15?16:cd.count>8?13:cd.count>3?10:cd.count>0?8:5;
+              const sz=Math.round(baseSz*dotScale);
+              const op=cd.count>0?1:0.22;
+              const showLabel=cd.count>2&&zoom>=1.2;
+              return(
+                <div key={id}
+                  onClick={(e)=>{e.stopPropagation();onCountryClick&&onCountryClick(id);}}
+                  title={`${id}: ${cd.count} signals (${cd.dominant})`}
+                  style={{
+                    position:"absolute",left:`${x}%`,top:`${y}%`,
+                    transform:"translate(-50%,-50%)",
+                    cursor:"pointer",opacity:op,zIndex:2,
+                  }}
+                  onMouseDown={e=>e.stopPropagation()}
+                  onMouseEnter={e=>{
+                    const dot=e.currentTarget.querySelector(".dot");
+                    if(dot)dot.style.transform="scale(1.5)";
+                  }}
+                  onMouseLeave={e=>{
+                    const dot=e.currentTarget.querySelector(".dot");
+                    if(dot)dot.style.transform="scale(1)";
+                  }}>
+                  {/* Pulse ring */}
+                  {cd.count>0&&<div style={{
+                    position:"absolute",
+                    width:sz*3,height:sz*3,
+                    borderRadius:"50%",
+                    border:`1px solid ${cd.col}44`,
+                    top:"50%",left:"50%",
+                    transform:"translate(-50%,-50%)",
+                    animation:"pulse-ring 2.5s ease infinite",
+                    pointerEvents:"none",
+                  }}/>}
+                  {/* Dot */}
+                  <div className="dot" style={{
+                    width:sz,height:sz,borderRadius:"50%",
+                    background:cd.col,
+                    boxShadow:`0 0 ${sz*1.2}px ${cd.col}bb`,
+                    border:`1.5px solid ${cd.col}88`,
+                    transition:"transform 0.15s",
+                    position:"relative",zIndex:1,
+                  }}/>
+                  {/* Label — only shows at zoom ≥ 1.2 */}
+                  {showLabel&&<div style={{
+                    position:"absolute",top:sz+2,left:"50%",
+                    transform:"translateX(-50%)",
+                    fontSize:Math.max(7,Math.round(7*dotScale)),
+                    color:T.onSurf,fontWeight:800,
+                    whiteSpace:"nowrap",
+                    fontFamily:"'JetBrains Mono',monospace",
+                    background:`${T.base}dd`,
+                    padding:"1px 3px",borderRadius:2,
+                    pointerEvents:"none",letterSpacing:"0.05em",
+                  }}>{code}</div>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Vignette overlay */}
+        <div style={{position:"absolute",inset:0,zIndex:3,pointerEvents:"none",
+          background:"radial-gradient(ellipse at 50% 50%, transparent 55%, #060e20aa 100%)"}}/>
+
+        {/* Zoom controls */}
+        <div style={{position:"absolute",top:10,right:10,zIndex:10,
+          display:"flex",flexDirection:"column",gap:4}}>
+          {[["＋",0.4],["−",-0.4]].map(([lbl,d])=>(
+            <button key={lbl} onClick={(e)=>{e.stopPropagation();changeZoom(d);}}
+              style={{
+                width:28,height:28,borderRadius:4,
+                background:`${T.base}ee`,border:`1px solid ${T.outVar}55`,
+                color:T.primary,fontSize:16,lineHeight:1,
+                cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
+                fontWeight:700,transition:"background 0.15s",
+                backdropFilter:"blur(4px)",
+              }}
+              onMouseEnter={e=>e.currentTarget.style.background=T.high}
+              onMouseLeave={e=>e.currentTarget.style.background=`${T.base}ee`}>
+              {lbl}
+            </button>
           ))}
+          {/* Reset */}
+          <button onClick={(e)=>{e.stopPropagation();setZoom(1.5);setPan({x:45,y:44});}}
+            style={{
+              width:28,height:28,borderRadius:4,
+              background:`${T.base}ee`,border:`1px solid ${T.outVar}55`,
+              color:T.onVar,fontSize:10,lineHeight:1,
+              cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
+              fontWeight:700,transition:"background 0.15s",
+              backdropFilter:"blur(4px)",
+            }}
+            onMouseEnter={e=>e.currentTarget.style.background=T.high}
+            onMouseLeave={e=>e.currentTarget.style.background=`${T.base}ee`}
+            title="Reset view">⌂</button>
         </div>
-        {/* Signal dots — positioned using Mercator % coordinates */}
-        <div style={{position:"absolute",inset:0,zIndex:2}}>
-          {MAP_COUNTRIES.map(({id,code,x,y})=>{
-            const cd=cData(id);
-            const sz=cd.count>15?18:cd.count>8?14:cd.count>3?10:cd.count>0?8:5;
-            const op=cd.count>0?1:0.28;
-            return(
-              <div key={id} onClick={()=>onCountryClick&&onCountryClick(id)}
-                title={`${id}: ${cd.count} signals`}
-                style={{
-                  position:"absolute",
-                  left:`${x}%`,top:`${y}%`,
-                  transform:"translate(-50%,-50%)",
-                  cursor:"pointer",zIndex:3,opacity:op,
-                  transition:"opacity 0.3s,transform 0.2s",
-                }}
-                onMouseEnter={e=>e.currentTarget.style.transform="translate(-50%,-50%) scale(1.4)"}
-                onMouseLeave={e=>e.currentTarget.style.transform="translate(-50%,-50%) scale(1)"}>
-                {/* Pulse ring for active */}
-                {cd.count>0&&<div style={{
-                  position:"absolute",width:sz*2.5,height:sz*2.5,
-                  borderRadius:"50%",border:`1px solid ${cd.col}55`,
-                  top:"50%",left:"50%",transform:"translate(-50%,-50%)",
-                  animation:"pulse-ring 2.5s ease infinite",
-                }}/>}
-                {/* Main dot */}
-                <div style={{
-                  width:sz,height:sz,borderRadius:"50%",
-                  background:cd.col,
-                  boxShadow:`0 0 ${sz}px ${cd.col}cc`,
-                  border:`1.5px solid ${cd.count>0?cd.col+"88":"#ffffff18"}`,
-                  position:"relative",
-                }}/>
-                {/* Label for active countries */}
-                {cd.count>2&&<div style={{
-                  position:"absolute",top:sz+3,left:"50%",
-                  transform:"translateX(-50%)",
-                  fontSize:8,color:T.onSurf,fontWeight:800,
-                  whiteSpace:"nowrap",fontFamily:"'JetBrains Mono',monospace",
-                  background:`${T.base}cc`,padding:"1px 4px",borderRadius:2,
-                  pointerEvents:"none",letterSpacing:"0.05em",
-                }}>{code}</div>}
-              </div>
-            );
-          })}
+
+        {/* Zoom indicator */}
+        <div style={{position:"absolute",top:10,left:10,zIndex:10,
+          fontSize:8,color:`${T.onVar}99`,background:`${T.base}cc`,
+          padding:"2px 6px",borderRadius:3,fontFamily:"'JetBrains Mono',monospace"}}>
+          {zoom.toFixed(1)}×
         </div>
-        {/* Gradient overlay — darken edges */}
-        <div style={{position:"absolute",inset:0,zIndex:1,pointerEvents:"none",
-          background:"radial-gradient(ellipse at 48% 48%, transparent 50%, #060e2088 100%)"}}/>
+
         {/* Legend */}
-        <div style={{position:"absolute",bottom:8,left:12,zIndex:4,
-          display:"flex",alignItems:"center",gap:12}}>
-          <span style={{fontFamily:"Manrope",fontSize:10,fontWeight:800,color:T.onSurf,
-            background:`${T.base}cc`,padding:"2px 6px",borderRadius:3}}>MENA Signal Map</span>
+        <div style={{position:"absolute",bottom:8,left:10,zIndex:10,
+          display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          <span style={{fontFamily:"Manrope",fontSize:9,fontWeight:800,color:T.onSurf,
+            background:`${T.base}dd`,padding:"2px 6px",borderRadius:3}}>MENA Signal Map</span>
           {[[T.error,"Critical"],[T.tertiary,"Warning"],[T.secondary,"Stable"],[T.primary,"Active"]].map(([col,l])=>(
             <div key={l} style={{display:"flex",alignItems:"center",gap:3,
-              background:`${T.base}aa`,padding:"2px 5px",borderRadius:3}}>
-              <div style={{width:6,height:6,borderRadius:"50%",background:col,
-                boxShadow:`0 0 4px ${col}88`}}/>
+              background:`${T.base}cc`,padding:"2px 5px",borderRadius:3}}>
+              <div style={{width:6,height:6,borderRadius:"50%",background:col,boxShadow:`0 0 4px ${col}`}}/>
               <span style={{fontSize:8,color:T.onVar,fontWeight:700}}>{l}</span>
             </div>
           ))}
         </div>
-        <div style={{position:"absolute",top:8,right:10,zIndex:4,fontSize:8,
-          color:`${T.onVar}77`,fontFamily:"Inter",background:`${T.base}aa`,
-          padding:"2px 6px",borderRadius:3}}>Click a hub to drill down</div>
+        <div style={{position:"absolute",bottom:8,right:10,zIndex:10,
+          fontSize:8,color:`${T.onVar}55`,background:`${T.base}aa`,
+          padding:"2px 6px",borderRadius:3}}>Scroll to zoom · Drag to pan</div>
       </div>
     </div>
   );
