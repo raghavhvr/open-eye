@@ -229,6 +229,37 @@ function FeedCard({item,lotteryMode}){
 
 // ─── MENA SVG MAP ─────────────────────────────────────────────────────────────
 // Proper SVG map using actual geographic positions — no background image needed
+// ── MENA MAP ─────────────────────────────────────────────────────────────────
+// Uses Carto Dark Matter tiles (free, no auth) composited into a 6×4 tile grid
+// Country dot positions computed via Mercator projection (zoom=4, x=7..12, y=5..8)
+const MAP_COUNTRIES=[
+  {id:"Morocco",      code:"MAR", x:11.4,  y:37.7},
+  {id:"Algeria",      code:"DZA", x:18.6,  y:42.6},
+  {id:"Tunisia",      code:"TUN", x:23.8,  y:35.0},
+  {id:"Libya",        code:"LBY", x:30.0,  y:43.9},
+  {id:"Egypt",        code:"EGY", x:38.9,  y:45.0},
+  {id:"Sudan",        code:"SDN", x:40.8,  y:57.4},
+  {id:"Lebanon",      code:"LBN", x:43.0,  y:35.0},
+  {id:"Palestine",    code:"PSE", x:42.7,  y:37.6},
+  {id:"Israel",       code:"ISR", x:42.6,  y:38.1},
+  {id:"Jordan",       code:"JOR", x:43.4,  y:38.8},
+  {id:"Syria",        code:"SYR", x:45.3,  y:33.7},
+  {id:"Iraq",         code:"IRQ", x:49.0,  y:35.8},
+  {id:"Kuwait",       code:"KUW", x:52.0,  y:40.8},
+  {id:"Saudi Arabia", code:"KSA", x:50.1,  y:47.7},
+  {id:"Bahrain",      code:"BHR", x:54.1,  y:44.9},
+  {id:"Qatar",        code:"QAT", x:54.6,  y:45.9},
+  {id:"UAE",          code:"UAE", x:57.0,  y:47.6},
+  {id:"Oman",         code:"OMN", x:59.2,  y:49.9},
+  {id:"Yemen",        code:"YEM", x:52.3,  y:57.4},
+  {id:"Iran",         code:"IRN", x:56.5,  y:36.9},
+];
+
+// Carto Dark Matter tile grid: zoom=4, x=7..12, y=5..8 (6 cols × 4 rows)
+const CARTO = "https://cartodb-basemaps-a.global.ssl.fastly.net/dark_all";
+const MAP_TILES = [];
+for(let y=5;y<=8;y++) for(let x=7;x<=12;x++) MAP_TILES.push(`${CARTO}/4/${x}/${y}.png`);
+
 function MENAMap({items,onCountryClick}){
   const cData=(cid)=>{
     const ci=items.filter(i=>i.country===cid);
@@ -238,82 +269,92 @@ function MENAMap({items,onCountryClick}){
     const col=dom==="CRITICAL"?T.error:dom==="WARNING"?T.tertiary:dom==="POSITIVE"||dom==="STABLE"?T.secondary:T.primary;
     return{count:ci.length,col,dominant:dom};
   };
-  // SVG map: viewBox 0 0 1000 600, MENA region occupies roughly x:150-800, y:80-480
-  // Country centroids in SVG space
-  const SVG_COUNTRIES=[
-    {id:"Morocco",   cx:155,cy:195},{id:"Algeria",    cx:220,cy:200},{id:"Tunisia",    cx:270,cy:185},
-    {id:"Libya",     cx:310,cy:220},{id:"Egypt",      cx:385,cy:255},{id:"Sudan",      cx:430,cy:330},
-    {id:"Lebanon",   cx:490,cy:195},{id:"Palestine",  cx:485,cy:215},{id:"Israel",     cx:482,cy:220},
-    {id:"Jordan",    cx:500,cy:235},{id:"Syria",      cx:510,cy:190},{id:"Iraq",       cx:545,cy:210},
-    {id:"Iran",      cx:610,cy:190},{id:"Kuwait",     cx:568,cy:245},{id:"Bahrain",    cx:585,cy:270},
-    {id:"Qatar",     cx:590,cy:280},{id:"Saudi Arabia",cx:540,cy:290},{id:"UAE",       cx:615,cy:285},
-    {id:"Oman",      cx:645,cy:305},{id:"Yemen",      cx:560,cy:340},
-  ];
   return(
-    <div style={{width:"100%",borderRadius:6,overflow:"hidden",border:`1px solid ${T.outVar}22`,background:T.base,position:"relative"}}>
-      <svg width="100%" viewBox="0 0 800 420" style={{display:"block"}}>
-        {/* Ocean background */}
-        <rect width="800" height="420" fill="#060e20"/>
-        {/* Grid lines */}
-        {[100,200,300,400,500,600,700].map(x=><line key={"v"+x} x1={x} y1={0} x2={x} y2={420} stroke="#b4c5ff" strokeWidth="0.3" opacity="0.08"/>)}
-        {[70,140,210,280,350].map(y=><line key={"h"+y} x1={0} y1={y} x2={800} y2={y} stroke="#b4c5ff" strokeWidth="0.3" opacity="0.08"/>)}
-        {/* North Africa coast — Mediterranean shore */}
-        <path d="M100,175 C120,165 145,158 175,152 C210,145 250,140 290,138 C330,136 365,140 395,148 C420,154 445,158 468,155"
-          fill="none" stroke="#4edea3" strokeWidth="1.2" opacity="0.4"/>
-        {/* North Africa land fill */}
-        <path d="M100,175 C120,165 145,158 175,152 C210,145 250,140 290,138 C330,136 365,140 395,148 C420,154 445,158 468,155 L475,180 L465,210 L450,240 L435,265 L415,280 L390,290 L355,295 L320,300 L285,305 L255,310 L225,305 L195,295 L168,278 L145,258 L125,235 L108,210 Z"
-          fill="#0f1f38" stroke="#b4c5ff" strokeWidth="0.6" opacity="0.7"/>
-        {/* Levant + Iraq */}
-        <path d="M468,155 C480,148 495,145 510,148 C525,150 535,155 545,162 C552,168 558,175 560,185 L555,205 L548,225 L540,245 L530,260 L518,270 L505,275 L490,268 L478,255 L470,238 L465,218 L465,195 Z"
-          fill="#0f1f38" stroke="#b4c5ff" strokeWidth="0.5" opacity="0.6"/>
-        {/* Arabian Peninsula */}
-        <path d="M545,175 C565,165 590,158 618,155 C648,152 672,158 692,170 C710,182 722,198 728,218 C732,238 728,260 718,282 C706,306 688,328 665,345 C645,360 620,370 594,374 C570,378 548,370 533,356 C518,342 512,322 514,300 C516,278 524,256 535,238 C540,225 543,205 545,188 Z"
-          fill="#001a44" stroke="#b4c5ff" strokeWidth="0.7" opacity="0.8"/>
-        {/* Yemen */}
-        <path d="M533,356 C548,370 570,378 594,374 C618,370 640,358 655,345 L640,360 L615,375 L585,382 L555,378 L530,368 Z"
-          fill="#0a1830" stroke="#b4c5ff" strokeWidth="0.4" opacity="0.5"/>
-        {/* Sudan/Horn */}
-        <path d="M415,280 L435,265 L455,265 L468,280 L475,305 L472,330 L460,350 L442,362 L420,365 L400,355 L390,338 L388,315 L395,295 Z"
-          fill="#0f1f38" stroke="#b4c5ff" strokeWidth="0.4" opacity="0.5"/>
-        {/* Iran */}
-        <path d="M560,118 C580,110 608,108 638,112 C665,116 688,126 705,140 C718,152 725,165 724,180 C722,165 710,155 692,148 L672,140 L648,133 L618,128 L588,130 L565,138 L548,150 L543,162 C542,148 548,130 560,118 Z"
-          fill="#0d1c35" stroke="#b4c5ff" strokeWidth="0.5" opacity="0.6"/>
-        {/* Mediterranean sea label */}
-        <text x="280" y="115" fill="#b4c5ff" fontSize="8" opacity="0.3" fontFamily="Inter" textAnchor="middle">MEDITERRANEAN</text>
-        <text x="650" y="400" fill="#b4c5ff" fontSize="8" opacity="0.3" fontFamily="Inter" textAnchor="middle">ARABIAN SEA</text>
-        <text x="700" y="180" fill="#b4c5ff" fontSize="7" opacity="0.2" fontFamily="Inter">CASPIAN</text>
-        {/* Country dots */}
-        {SVG_COUNTRIES.map(({id,cx,cy})=>{
-          const cd=cData(id);
-          const r=cd.count>12?10:cd.count>5?8:cd.count>0?6:4;
-          const op=cd.count>0?0.95:0.3;
-          return(
-            <g key={id} onClick={()=>onCountryClick&&onCountryClick(id)} style={{cursor:"pointer"}} opacity={op}>
-              {/* Pulse ring for active countries */}
-              {cd.count>0&&<circle cx={cx} cy={cy} r={r+4} fill="none" stroke={cd.col} strokeWidth="1" opacity="0.3"/>}
-              <circle cx={cx} cy={cy} r={r} fill={cd.col}
-                style={{filter:`drop-shadow(0 0 ${r}px ${cd.col}aa)`,transition:"all 0.4s"}}/>
-              {cd.count>0&&<text x={cx} y={cy+r+10} textAnchor="middle" fill={T.onVar} fontSize="7" fontFamily="Inter" fontWeight="700" opacity="0.85">
-                {COUNTRY_MAP[id]?.label||id}
-              </text>}
-            </g>
-          );
-        })}
-        {/* Legend */}
-        <g transform="translate(10,390)">
-          <text x="0" y="0" fill={T.onSurf} fontSize="9" fontFamily="Manrope" fontWeight="800">MENA Signal Map</text>
-          {[[T.error,"Critical",70],[T.tertiary,"Warning",120],[T.secondary,"Stable",170],[T.primary,"Active",215]].map(([col,l,ox])=>(
-            <g key={l} transform={`translate(${ox},0)`}>
-              <circle cx="0" cy="-3" r="4" fill={col}/>
-              <text x="7" y="0" fill={T.onVar} fontSize="7" fontFamily="Inter" fontWeight="700">{l}</text>
-            </g>
+    <div style={{width:"100%",borderRadius:6,overflow:"hidden",border:`1px solid ${T.outVar}22`,position:"relative",background:T.base}}>
+      {/* Tile grid — 6 cols × 4 rows, each 256px → displayed at 50% = 128px */}
+      <div style={{
+        display:"grid",gridTemplateColumns:"repeat(6,1fr)",
+        width:"100%",height:0,paddingBottom:"33.3%",  // aspect = 4rows/6cols = 66.7% but halved
+        position:"relative",overflow:"hidden",
+      }}>
+        {/* Absolute container for tiles */}
+        <div style={{position:"absolute",inset:0,display:"grid",gridTemplateColumns:"repeat(6,1fr)",gridTemplateRows:"repeat(4,1fr)"}}>
+          {MAP_TILES.map((url,i)=>(
+            <img key={i} src={url} alt="" style={{width:"100%",height:"100%",display:"block",objectFit:"cover"}}
+              loading="eager" decoding="async"/>
           ))}
-        </g>
-        <text x="790" y="15" textAnchor="end" fill={T.onVar} fontSize="7" fontFamily="Inter" opacity="0.5">Click a hub to drill down</text>
-      </svg>
+        </div>
+        {/* Signal dots — positioned using Mercator % coordinates */}
+        <div style={{position:"absolute",inset:0,zIndex:2}}>
+          {MAP_COUNTRIES.map(({id,code,x,y})=>{
+            const cd=cData(id);
+            const sz=cd.count>15?18:cd.count>8?14:cd.count>3?10:cd.count>0?8:5;
+            const op=cd.count>0?1:0.28;
+            return(
+              <div key={id} onClick={()=>onCountryClick&&onCountryClick(id)}
+                title={`${id}: ${cd.count} signals`}
+                style={{
+                  position:"absolute",
+                  left:`${x}%`,top:`${y}%`,
+                  transform:"translate(-50%,-50%)",
+                  cursor:"pointer",zIndex:3,opacity:op,
+                  transition:"opacity 0.3s,transform 0.2s",
+                }}
+                onMouseEnter={e=>e.currentTarget.style.transform="translate(-50%,-50%) scale(1.4)"}
+                onMouseLeave={e=>e.currentTarget.style.transform="translate(-50%,-50%) scale(1)"}>
+                {/* Pulse ring for active */}
+                {cd.count>0&&<div style={{
+                  position:"absolute",width:sz*2.5,height:sz*2.5,
+                  borderRadius:"50%",border:`1px solid ${cd.col}55`,
+                  top:"50%",left:"50%",transform:"translate(-50%,-50%)",
+                  animation:"pulse-ring 2.5s ease infinite",
+                }}/>}
+                {/* Main dot */}
+                <div style={{
+                  width:sz,height:sz,borderRadius:"50%",
+                  background:cd.col,
+                  boxShadow:`0 0 ${sz}px ${cd.col}cc`,
+                  border:`1.5px solid ${cd.count>0?cd.col+"88":"#ffffff18"}`,
+                  position:"relative",
+                }}/>
+                {/* Label for active countries */}
+                {cd.count>2&&<div style={{
+                  position:"absolute",top:sz+3,left:"50%",
+                  transform:"translateX(-50%)",
+                  fontSize:8,color:T.onSurf,fontWeight:800,
+                  whiteSpace:"nowrap",fontFamily:"'JetBrains Mono',monospace",
+                  background:`${T.base}cc`,padding:"1px 4px",borderRadius:2,
+                  pointerEvents:"none",letterSpacing:"0.05em",
+                }}>{code}</div>}
+              </div>
+            );
+          })}
+        </div>
+        {/* Gradient overlay — darken edges */}
+        <div style={{position:"absolute",inset:0,zIndex:1,pointerEvents:"none",
+          background:"radial-gradient(ellipse at 48% 48%, transparent 50%, #060e2088 100%)"}}/>
+        {/* Legend */}
+        <div style={{position:"absolute",bottom:8,left:12,zIndex:4,
+          display:"flex",alignItems:"center",gap:12}}>
+          <span style={{fontFamily:"Manrope",fontSize:10,fontWeight:800,color:T.onSurf,
+            background:`${T.base}cc`,padding:"2px 6px",borderRadius:3}}>MENA Signal Map</span>
+          {[[T.error,"Critical"],[T.tertiary,"Warning"],[T.secondary,"Stable"],[T.primary,"Active"]].map(([col,l])=>(
+            <div key={l} style={{display:"flex",alignItems:"center",gap:3,
+              background:`${T.base}aa`,padding:"2px 5px",borderRadius:3}}>
+              <div style={{width:6,height:6,borderRadius:"50%",background:col,
+                boxShadow:`0 0 4px ${col}88`}}/>
+              <span style={{fontSize:8,color:T.onVar,fontWeight:700}}>{l}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{position:"absolute",top:8,right:10,zIndex:4,fontSize:8,
+          color:`${T.onVar}77`,fontFamily:"Inter",background:`${T.base}aa`,
+          padding:"2px 6px",borderRadius:3}}>Click a hub to drill down</div>
+      </div>
     </div>
   );
 }
+
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App(){
@@ -461,6 +502,7 @@ export default function App(){
     @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.3)}}
     @keyframes ticker{0%{transform:translateX(100%)}100%{transform:translateX(-100vw)}}
     @keyframes lottery-glow{0%,100%{box-shadow:0 0 10px ${T.lottery}33}50%{box-shadow:0 0 20px ${T.lottery}66}}
+    @keyframes pulse-ring{0%{transform:translate(-50%,-50%) scale(0.8);opacity:0.8}100%{transform:translate(-50%,-50%) scale(2);opacity:0}}
     .live{animation:pulse 1.8s ease infinite}
     .ticker-txt{animation:ticker 90s linear infinite;white-space:nowrap;will-change:transform}
     .lot-card{animation:lottery-glow 3s ease infinite}
