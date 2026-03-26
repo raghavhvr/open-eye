@@ -264,7 +264,8 @@ function MENAMap({items,onCountryClick}){
   // Zoom state: 1.0 = full MENA view, 1.5 = default (slightly zoomed in), 3.0 = max
   const [zoom,setZoom]    = useState(1.5);
   // Pan origin as % of the tile canvas — default centres on Arabian Peninsula
-  const [pan,setPan]      = useState({x:45,y:44});
+  // pan is fraction of tile grid [0..1], default centres on Arabian Peninsula
+  const [pan,setPan]      = useState({x:0.50,y:0.46});
   const [dragging,setDragging] = useState(false);
   const [dragStart,setDragStart] = useState(null);
   const containerRef = useRef(null);
@@ -292,8 +293,9 @@ function MENAMap({items,onCountryClick}){
   const onMouseMove=(e)=>{
     if(!dragging||!dragStart||!containerRef.current)return;
     const rect=containerRef.current.getBoundingClientRect();
-    const dx=((dragStart.mx-e.clientX)/rect.width)*100/zoom;
-    const dy=((dragStart.my-e.clientY)/rect.height)*100/zoom;
+    // pan is in tile-grid fractions [0..1]
+    const dx=((dragStart.mx-e.clientX)/rect.width)/zoom;
+    const dy=((dragStart.my-e.clientY)/rect.height)*(0.44/(2/3))/zoom;
     setPan({x:dragStart.px+dx,y:dragStart.py+dy});
   };
   const onMouseUp=()=>{setDragging(false);setDragStart(null);};
@@ -308,8 +310,8 @@ function MENAMap({items,onCountryClick}){
   const onTouchMove=(e)=>{
     if(!touchRef.current||!containerRef.current||e.touches.length!==1)return;
     const rect=containerRef.current.getBoundingClientRect();
-    const dx=((touchRef.current.tx-e.touches[0].clientX)/rect.width)*100/zoom;
-    const dy=((touchRef.current.ty-e.touches[0].clientY)/rect.height)*100/zoom;
+    const dx=((touchRef.current.tx-e.touches[0].clientX)/rect.width)/zoom;
+    const dy=((touchRef.current.ty-e.touches[0].clientY)/rect.height)*(0.44/(2/3))/zoom;
     setPan({x:touchRef.current.px+dx,y:touchRef.current.py+dy});
     e.preventDefault();
   };
@@ -336,24 +338,35 @@ function MENAMap({items,onCountryClick}){
       onMouseUp={onMouseUp} onMouseLeave={onMouseUp}
       onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={()=>{touchRef.current=null;}}>
 
-      {/* Aspect ratio box: 6×4 tiles → 3:2 but we show at 50% height = 33.3% padding */}
-      <div style={{width:"100%",height:0,paddingBottom:"33.3%",position:"relative",overflow:"hidden"}}>
+      {/* Map container — fixed height, overflow hidden to crop tile grid */}
+      {/* Tile grid is 6×4 tiles (aspect 3:2). We show a window into it.      */}
+      {/* paddingBottom:66.67% = full grid. We use 44% to crop to MENA band.  */}
+      <div style={{width:"100%",height:0,paddingBottom:"44%",position:"relative",overflow:"hidden"}}>
 
         {/* Zoomable + pannable inner canvas */}
         <div style={{
           position:"absolute",inset:0,overflow:"hidden",
         }}>
-          {/* The actual tile + dot canvas, transformed */}
+          {/* The actual tile + dot canvas.
+              The tile grid has aspect-ratio 6:4 = 3:2.
+              We size it as: width=100%*zoom, height=width*(4/6)*zoom
+              so tiles always render as perfect squares.
+              We then pan by adjusting left/top.                              */}
           <div style={{
             position:"absolute",
-            // We expand the inner div to fill based on zoom, anchored to pan centre
             width:`${100*zoom}%`,
-            height:`${100*zoom}%`,
-            left:`${50-pan.x*zoom}%`,
-            top:`${50-pan.y*zoom}%`,
+            // height = width * (4 rows / 6 cols) = width * 0.6667
+            // As percentage of the OUTER container width:
+            // outer height = 0.44 * outer_width
+            // inner width  = zoom * outer_width
+            // inner height = (2/3) * inner_width = (2/3)*zoom*outer_width
+            // inner height as % of outer height = (2/3)*zoom / 0.44 * 100
+            height:`${(2/3)*zoom/0.44*100}%`,
+            left:`${50-pan.x*zoom*100}%`,
+            top:`${50-pan.y*(2/3)*zoom/0.44*100}%`,
             transition:dragging?"none":"left 0.1s,top 0.1s,width 0.2s,height 0.2s",
           }}>
-            {/* Tile grid */}
+            {/* Tile grid — 6 cols × 4 rows, tiles render as squares */}
             <div style={{position:"absolute",inset:0,display:"grid",
               gridTemplateColumns:"repeat(6,1fr)",gridTemplateRows:"repeat(4,1fr)"}}>
               {MAP_TILES.map((url,i)=>(
@@ -449,7 +462,7 @@ function MENAMap({items,onCountryClick}){
             </button>
           ))}
           {/* Reset */}
-          <button onClick={(e)=>{e.stopPropagation();setZoom(1.5);setPan({x:45,y:44});}}
+          <button onClick={(e)=>{e.stopPropagation();setZoom(1.5);setPan({x:0.50,y:0.46});}}
             style={{
               width:28,height:28,borderRadius:4,
               background:`${T.base}ee`,border:`1px solid ${T.outVar}55`,
