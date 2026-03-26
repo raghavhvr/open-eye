@@ -23,6 +23,15 @@
     },
     "api/social.js": {
       "maxDuration": 30
+    },
+    "api/backfill.js": {
+      "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/ingest",
+      "schedule": "0 * * * *"
+    }
+  ]
 }

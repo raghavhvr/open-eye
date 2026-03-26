@@ -232,6 +232,45 @@ async function fetchHN30d() {
   return all;
 }
 
+// ── Upstash Redis helpers (REST, no npm needed) ────────────────────────────
+const UPSTASH_URL   = process.env.UPSTASH_REDIS_REST_URL;
+const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+function redisHeaders() {
+  return { "Authorization": `Bearer ${UPSTASH_TOKEN}`, "Content-Type": "application/json" };
+}
+async function redisGet(key) {
+  if (!UPSTASH_URL) return null;
+  try {
+    const res = await fetch(`${UPSTASH_URL}/get/${encodeURIComponent(key)}`, { headers: redisHeaders() });
+    const j = await res.json(); return j.result || null;
+  } catch { return null; }
+}
+async function redisPipeline(commands) {
+  if (!UPSTASH_URL) return null;
+  try {
+    const res = await fetch(`${UPSTASH_URL}/pipeline`, {
+      method: "POST", headers: redisHeaders(), body: JSON.stringify(commands),
+    });
+    return res.json();
+  } catch { return null; }
+}
+
+function buildStats(articles) {
+  const sentDist = { POSITIVE:0, STABLE:0, NEUTRAL:0, WARNING:0, CRITICAL:0 };
+  const sectionDist = {}, countryDist = {}, sourceDist = {};
+  for (const a of articles) {
+    sentDist[a.sentiment.label] = (sentDist[a.sentiment.label] || 0) + 1;
+    sectionDist[a.section]   = (sectionDist[a.section]   || 0) + 1;
+    countryDist[a.country]   = (countryDist[a.country]   || 0) + 1;
+    sourceDist[a.sourceType] = (sourceDist[a.sourceType] || 0) + 1;
+  }
+  const pulse = Math.min(98, Math.max(10, Math.round(
+    50 + (sentDist.POSITIVE*4 + sentDist.STABLE*2) - (sentDist.CRITICAL*9 + sentDist.WARNING*4)
+  )));
+  return { sentDist, sectionDist, countryDist, sourceDist, pulse };
+}
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
@@ -239,16 +278,88 @@ export default async function handler(req, res) {
   }
 
   const startedAt = Date.now();
+  const hasRedis = !!(UPSTASH_URL && UPSTASH_TOKEN);
 
-  // Run all sources in parallel
+  // ── If Redis is configured: serve from store + append new signals ──────────
+  if (hasRedis) {
+
+    // 1. Fetch only NEW signals from all live sources (fast, ~10s)
+    const [rssResults, mastoResults, lemmyResults, hnItems] = await Promise.all([
+      Promise.all(RSS_SOURCES.map(src => fetchRSSSource(src))),
+      Promise.allSettled(MASTODON_TAGS.map(t => fetchMastodonTag(t))),
+      Promise.allSettled(LEMMY_QUERIES.map(q => fetchLemmyQuery(q))),
+      fetchHN30d(),
+    ]);
+
+    const rawNew = [
+      ...rssResults.flat(),
+      ...mastoResults.filter(r => r.status === "fulfilled").flatMap(r => r.value),
+      ...lemmyResults.filter(r => r.status === "fulfilled").flatMap(r => r.value),
+      ...hnItems,
+    ];
+
+    // 2. Normalise new items
+    const seenNew = new Set();
+    const newNormalised = rawNew
+      .filter(i => { if (!i.id || seenNew.has(i.id)) return false; seenNew.add(i.id); return true; })
+      .map(normalise);
+
+    // 3. Load existing store + merge
+    const existingRaw = await redisGet("signals:articles");
+    const existing = existingRaw ? JSON.parse(existingRaw) : [];
+    const existingIds = new Set(existing.map(a => a.id));
+    const addedItems = newNormalised.filter(a => !existingIds.has(a.id));
+
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const merged = [...addedItems, ...existing]
+      .filter(a => new Date(a.timestamp).getTime() > cutoff)
+      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+      .slice(0, 3000);
+
+    // 4. Persist back to Redis
+    const storeMeta = {
+      lastIngest: new Date().toISOString(),
+      totalPushed: merged.length,
+      addedThisRun: addedItems.length,
+    };
+    await redisPipeline([
+      ["SET", "signals:articles", JSON.stringify(merged)],
+      ["SET", "signals:meta",     JSON.stringify(storeMeta)],
+    ]);
+
+    // 5. Build stats + respond
+    const stats = buildStats(merged);
+    const mastoActive = mastoResults.filter(r => r.status === "fulfilled" && r.value.length > 0).length;
+    const lemmyActive = lemmyResults.filter(r => r.status === "fulfilled" && r.value.length > 0).length;
+
+    res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=600");
+    return res.status(200).json({
+      ok: true,
+      storage: "redis",
+      meta: {
+        ingestedAt: new Date().toISOString(),
+        windowDays: 30,
+        totalRaw: rawNew.length,
+        totalFiltered: merged.length,
+        addedThisRun: addedItems.length,
+        elapsedMs: Date.now() - startedAt,
+        ...stats,
+      },
+      sourceHealth: {
+        rss:      rssResults.map((r,i) => ({ id: RSS_SOURCES[i].id, count: r.length, status: r.length > 0 ? "active" : "error" })),
+        mastodon: { count: mastoActive, active: mastoActive, status: mastoActive > 0 ? "active" : "warn" },
+        lemmy:    { count: lemmyActive, active: lemmyActive, status: lemmyActive > 0 ? "active" : "warn" },
+        hn:       { count: hnItems.length, status: hnItems.length > 0 ? "active" : "warn" },
+      },
+      articles: merged,
+    });
+  }
+
+  // ── Fallback: no Redis — live fetch only (original behaviour) ──────────────
   const [rssResults, mastoResults, lemmyResults, hnItems] = await Promise.all([
-    // RSS: all 7 feeds in parallel
     Promise.all(RSS_SOURCES.map(src => fetchRSSSource(src))),
-    // Mastodon: 12 ME hashtag timelines (replaces Reddit — 403 from Vercel IPs)
     Promise.allSettled(MASTODON_TAGS.map(t => fetchMastodonTag(t))),
-    // Lemmy: 10 MENA search queries (federated, open API)
     Promise.allSettled(LEMMY_QUERIES.map(q => fetchLemmyQuery(q))),
-    // HN: 10 MENA queries × 20 results
     fetchHN30d(),
   ]);
 
@@ -259,67 +370,35 @@ export default async function handler(req, res) {
     ...hnItems,
   ];
 
-  // Deduplicate by ID
   const seen = new Set();
-  const raw = rawAll.filter(i => {
-    if (!i.id || seen.has(i.id)) return false;
-    seen.add(i.id);
-    return true;
-  });
-
-  // Normalise — classify section + detect country + sentiment in one pass
-  const articles = raw.map(normalise);
-
-  // Filter to last 30 days
+  const raw = rawAll.filter(i => { if (!i.id || seen.has(i.id)) return false; seen.add(i.id); return true; });
   const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
-  const recent = articles.filter(a => new Date(a.timestamp).getTime() > cutoff);
+  const recent = raw.map(normalise)
+    .filter(a => new Date(a.timestamp).getTime() > cutoff)
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
-  // Sort newest first
-  recent.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-  // Aggregate stats
-  const sentDist = { POSITIVE:0, STABLE:0, NEUTRAL:0, WARNING:0, CRITICAL:0 };
-  const sectionDist = {}, countryDist = {}, sourceDist = {};
-  for (const a of recent) {
-    sentDist[a.sentiment.label] = (sentDist[a.sentiment.label] || 0) + 1;
-    sectionDist[a.section]  = (sectionDist[a.section]  || 0) + 1;
-    countryDist[a.country]  = (countryDist[a.country]  || 0) + 1;
-    sourceDist[a.sourceType]= (sourceDist[a.sourceType]|| 0) + 1;
-  }
-
-  // Pulse score
-  const pulse = Math.min(98, Math.max(10, Math.round(
-    50 + (sentDist.POSITIVE*4 + sentDist.STABLE*2) - (sentDist.CRITICAL*9 + sentDist.WARNING*4)
-  )));
-
-  // Source health
+  const stats = buildStats(recent);
   const mastoActive = mastoResults.filter(r => r.status === "fulfilled" && r.value.length > 0).length;
   const lemmyActive = lemmyResults.filter(r => r.status === "fulfilled" && r.value.length > 0).length;
-  const sourceHealth = {
-    rss:      rssResults.map((r,i) => ({ id: RSS_SOURCES[i].id, count: r.length, status: r.length > 0 ? "active" : "error" })),
-    mastodon: { count: mastoActive, active: mastoActive, status: mastoActive > 0 ? "active" : "warn" },
-    lemmy:    { count: lemmyActive, active: lemmyActive, status: lemmyActive > 0 ? "active" : "warn" },
-    hn:       { count: hnItems.length, status: hnItems.length > 0 ? "active" : "warn" },
-  };
 
-  const elapsedMs = Date.now() - startedAt;
-
-  res.setHeader("Cache-Control", "s-maxage=1800, stale-while-revalidate=3600"); // cache 30 min on Vercel edge
+  res.setHeader("Cache-Control", "s-maxage=1800, stale-while-revalidate=3600");
   return res.status(200).json({
     ok: true,
+    storage: "live",
     meta: {
-      ingestedAt:   new Date().toISOString(),
-      windowDays:   30,
-      totalRaw:     raw.length,
+      ingestedAt: new Date().toISOString(),
+      windowDays: 30,
+      totalRaw: raw.length,
       totalFiltered: recent.length,
-      elapsedMs,
-      sentDist,
-      sectionDist,
-      countryDist,
-      sourceDist,
-      pulse,
+      elapsedMs: Date.now() - startedAt,
+      ...stats,
     },
-    sourceHealth,
+    sourceHealth: {
+      rss:      rssResults.map((r,i) => ({ id: RSS_SOURCES[i].id, count: r.length, status: r.length > 0 ? "active" : "error" })),
+      mastodon: { count: mastoActive, active: mastoActive, status: mastoActive > 0 ? "active" : "warn" },
+      lemmy:    { count: lemmyActive, active: lemmyActive, status: lemmyActive > 0 ? "active" : "warn" },
+      hn:       { count: hnItems.length, status: hnItems.length > 0 ? "active" : "warn" },
+    },
     articles: recent,
   });
 }
