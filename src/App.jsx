@@ -257,15 +257,27 @@ function MENAMap({items,onCountryClick}){
         {/* Grid lines */}
         {[100,200,300,400,500,600,700].map(x=><line key={"v"+x} x1={x} y1={0} x2={x} y2={420} stroke="#b4c5ff" strokeWidth="0.3" opacity="0.08"/>)}
         {[70,140,210,280,350].map(y=><line key={"h"+y} x1={0} y1={y} x2={800} y2={y} stroke="#b4c5ff" strokeWidth="0.3" opacity="0.08"/>)}
-        {/* Land mass: rough MENA region silhouette */}
-        <path d="M130,160 L170,140 L230,135 L290,130 L340,145 L380,155 L420,150 L450,160 L480,155 L520,145 L560,140 L610,135 L660,145 L700,160 L720,180 L730,210 L720,250 L700,280 L680,310 L660,330 L630,340 L600,350 L570,360 L550,370 L530,375 L510,360 L490,345 L470,340 L450,360 L430,370 L400,365 L370,350 L350,330 L320,310 L290,300 L260,290 L230,280 L200,270 L170,250 L150,230 L135,210 Z"
-          fill="#131b2e" stroke="#b4c5ff" strokeWidth="0.5" opacity="0.6"/>
-        {/* North Africa coast detail */}
-        <path d="M130,160 L150,145 L180,138 L220,132 L270,130 L310,138 L350,148 L390,152 L420,148 L450,155"
-          fill="none" stroke="#4edea3" strokeWidth="0.8" opacity="0.3"/>
-        {/* Arabian Peninsula highlight */}
-        <path d="M530,200 L560,190 L610,188 L650,195 L680,220 L700,260 L690,300 L670,330 L640,345 L610,350 L580,360 L560,368 L545,355 L530,330 L520,300 L515,270 L520,240 L525,215 Z"
-          fill="#003188" opacity="0.25" stroke="#b4c5ff" strokeWidth="0.5"/>
+        {/* North Africa coast — Mediterranean shore */}
+        <path d="M100,175 C120,165 145,158 175,152 C210,145 250,140 290,138 C330,136 365,140 395,148 C420,154 445,158 468,155"
+          fill="none" stroke="#4edea3" strokeWidth="1.2" opacity="0.4"/>
+        {/* North Africa land fill */}
+        <path d="M100,175 C120,165 145,158 175,152 C210,145 250,140 290,138 C330,136 365,140 395,148 C420,154 445,158 468,155 L475,180 L465,210 L450,240 L435,265 L415,280 L390,290 L355,295 L320,300 L285,305 L255,310 L225,305 L195,295 L168,278 L145,258 L125,235 L108,210 Z"
+          fill="#0f1f38" stroke="#b4c5ff" strokeWidth="0.6" opacity="0.7"/>
+        {/* Levant + Iraq */}
+        <path d="M468,155 C480,148 495,145 510,148 C525,150 535,155 545,162 C552,168 558,175 560,185 L555,205 L548,225 L540,245 L530,260 L518,270 L505,275 L490,268 L478,255 L470,238 L465,218 L465,195 Z"
+          fill="#0f1f38" stroke="#b4c5ff" strokeWidth="0.5" opacity="0.6"/>
+        {/* Arabian Peninsula */}
+        <path d="M545,175 C565,165 590,158 618,155 C648,152 672,158 692,170 C710,182 722,198 728,218 C732,238 728,260 718,282 C706,306 688,328 665,345 C645,360 620,370 594,374 C570,378 548,370 533,356 C518,342 512,322 514,300 C516,278 524,256 535,238 C540,225 543,205 545,188 Z"
+          fill="#001a44" stroke="#b4c5ff" strokeWidth="0.7" opacity="0.8"/>
+        {/* Yemen */}
+        <path d="M533,356 C548,370 570,378 594,374 C618,370 640,358 655,345 L640,360 L615,375 L585,382 L555,378 L530,368 Z"
+          fill="#0a1830" stroke="#b4c5ff" strokeWidth="0.4" opacity="0.5"/>
+        {/* Sudan/Horn */}
+        <path d="M415,280 L435,265 L455,265 L468,280 L475,305 L472,330 L460,350 L442,362 L420,365 L400,355 L390,338 L388,315 L395,295 Z"
+          fill="#0f1f38" stroke="#b4c5ff" strokeWidth="0.4" opacity="0.5"/>
+        {/* Iran */}
+        <path d="M560,118 C580,110 608,108 638,112 C665,116 688,126 705,140 C718,152 725,165 724,180 C722,165 710,155 692,148 L672,140 L648,133 L618,128 L588,130 L565,138 L548,150 L543,162 C542,148 548,130 560,118 Z"
+          fill="#0d1c35" stroke="#b4c5ff" strokeWidth="0.5" opacity="0.6"/>
         {/* Mediterranean sea label */}
         <text x="280" y="115" fill="#b4c5ff" fontSize="8" opacity="0.3" fontFamily="Inter" textAnchor="middle">MEDITERRANEAN</text>
         <text x="650" y="400" fill="#b4c5ff" fontSize="8" opacity="0.3" fontFamily="Inter" textAnchor="middle">ARABIAN SEA</text>
@@ -447,10 +459,10 @@ export default function App(){
     .srow:hover{background:${T.high};}
     @keyframes spin{to{transform:rotate(360deg)}}
     @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.3)}}
-    @keyframes ticker{0%{transform:translateX(100%)}100%{transform:translateX(-200%)}}
+    @keyframes ticker{0%{transform:translateX(100%)}100%{transform:translateX(-100vw)}}
     @keyframes lottery-glow{0%,100%{box-shadow:0 0 10px ${T.lottery}33}50%{box-shadow:0 0 20px ${T.lottery}66}}
     .live{animation:pulse 1.8s ease infinite}
-    .ticker-txt{animation:ticker 35s linear infinite;display:inline-block;white-space:nowrap}
+    .ticker-txt{animation:ticker 90s linear infinite;white-space:nowrap;will-change:transform}
     .lot-card{animation:lottery-glow 3s ease infinite}
   `;
 
@@ -534,21 +546,30 @@ export default function App(){
       <div style={{marginLeft:210,display:"flex",flexDirection:"column",minHeight:"100vh"}}>
 
         {/* Top nav */}
-        <header style={{background:`${T.base}e8`,backdropFilter:"blur(12px)",borderBottom:`1px solid ${T.outVar}18`,padding:"0 24px",display:"flex",alignItems:"center",justifyContent:"space-between",height:52,position:"sticky",top:0,zIndex:40}}>
-          <div style={{display:"flex",alignItems:"center",gap:16}}>
-            <span style={{fontFamily:"Manrope",fontWeight:900,fontSize:15,color:T.primary,letterSpacing:"-.5px"}}>STRATEGIC EYE</span>
-            <nav style={{display:"flex",gap:2}}>
-              {NAV.map(n=>(<button key={n.id} className={`nav-link${tab===n.id?(n.id==="lottery"?" lottery-active":" active"):""}`} onClick={()=>setTab(n.id)}><span className="ms" style={{fontSize:14}}>{n.icon}</span>{n.label}</button>))}
-            </nav>
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:12}}>
-            <div style={{flex:1,margin:"0 16px",minWidth:0,background:T.low,borderRadius:4,padding:"0 10px",display:"flex",alignItems:"center",gap:8,height:30,overflow:"hidden"}}>
-              <span style={{fontSize:9,background:`${T.errCont}33`,color:T.error,padding:"2px 7px",borderRadius:3,fontWeight:800,flexShrink:0,border:`1px solid ${T.error}44`}}>● LIVE</span>
-              <span className="ticker-txt" style={{fontSize:10,color:T.onVar}}>{allItems.length>0?allItems.slice(0,8).map(i=>i.title).join("   ·   "):"Ingesting signals…"}</span>
+        {/* Top nav bar */}
+        <header style={{background:`${T.base}ee`,backdropFilter:"blur(12px)",borderBottom:`1px solid ${T.outVar}18`,position:"sticky",top:0,zIndex:40}}>
+          {/* Row 1: Brand + Nav + Status */}
+          <div style={{padding:"0 24px",display:"flex",alignItems:"center",justifyContent:"space-between",height:48}}>
+            <div style={{display:"flex",alignItems:"center",gap:14}}>
+              <span style={{fontFamily:"Manrope",fontWeight:900,fontSize:15,color:T.primary,letterSpacing:"-.5px",flexShrink:0}}>STRATEGIC EYE</span>
+              <nav style={{display:"flex",gap:2,flexWrap:"nowrap",overflow:"hidden"}}>
+                {NAV.map(n=>(<button key={n.id} className={`nav-link${tab===n.id?(n.id==="lottery"?" lottery-active":" active"):""}`} onClick={()=>setTab(n.id)}><span className="ms" style={{fontSize:14}}>{n.icon}</span>{n.label}</button>))}
+              </nav>
             </div>
-            <span style={{fontSize:10,color:T.onVar}}>{allItems.length} signals</span>
-            <span style={{fontSize:9,color:T.lottery,fontWeight:700,background:`${T.lottery}22`,padding:"2px 7px",borderRadius:8}}>🎰 {lotteryItems.length}</span>
-            <span style={{fontSize:9,color:T.secondary,fontWeight:700,background:`${T.secCont}25`,padding:"2px 7px",borderRadius:8}}>● ONLINE</span>
+            <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+              <span style={{fontSize:10,color:T.onVar}}>{allItems.length} signals</span>
+              <span style={{fontSize:9,color:T.lottery,fontWeight:700,background:`${T.lottery}22`,padding:"2px 7px",borderRadius:8}}>🎰 {lotteryItems.length}</span>
+              <span style={{fontSize:9,color:T.secondary,fontWeight:700,background:`${T.secCont}25`,padding:"2px 7px",borderRadius:8}}>● ONLINE</span>
+            </div>
+          </div>
+          {/* Row 2: Full-width ticker */}
+          <div style={{borderTop:`1px solid ${T.outVar}11`,background:T.base,padding:"0 0",height:26,display:"flex",alignItems:"center",overflow:"hidden"}}>
+            <span style={{fontSize:9,background:T.errCont,color:T.error,padding:"2px 8px",height:"100%",display:"flex",alignItems:"center",fontWeight:800,flexShrink:0,letterSpacing:".06em"}}>● LIVE</span>
+            <div style={{flex:1,overflow:"hidden",position:"relative",height:"100%"}}>
+              <span className="ticker-txt" style={{fontSize:10,color:T.onVar,position:"absolute",top:"50%",transform:"translateY(-50%)",whiteSpace:"nowrap"}}>
+                {allItems.length>0?allItems.slice(0,10).map(i=>i.title).join("     ·     "):"Ingesting intelligence signals…"}
+              </span>
+            </div>
           </div>
         </header>
 

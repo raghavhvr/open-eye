@@ -4,7 +4,10 @@
 
 // Switch back to 1.5-flash for 3× higher daily free quota.
 // When you want 2.5-flash quality, set GEMINI_MODEL=gemini-2.5-flash in Vercel env vars.
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+// gemini-2.5-flash-lite: 15 RPM, 1000 RPD free — best quota for this use case
+// gemini-2.5-flash: 10 RPM, 250 RPD free — higher quality
+// Override via GEMINI_MODEL env var in Vercel
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });

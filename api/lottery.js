@@ -20,12 +20,16 @@ function stripHtml(html){return(html||"").replace(/<[^>]+>/g," ").replace(/\s+/g
 
 // ── Mastodon hashtag lottery signals ─────────────────────────────────────────
 const MASTO_LOT_TAGS=[
-  {tag:"lottery",     label:"Lottery"},
-  {tag:"jackpot",     label:"Jackpot"},
-  {tag:"luckydraw",   label:"Lucky Draw"},
-  {tag:"gambling",    label:"Gambling"},
-  {tag:"winning",     label:"Winning"},
-  {tag:"raffle",      label:"Raffle"},
+  {tag:"lottery",      label:"Lottery"},
+  {tag:"jackpot",      label:"Jackpot"},
+  {tag:"luckydraw",    label:"Lucky Draw"},
+  {tag:"gambling",     label:"Gambling"},
+  {tag:"winning",      label:"Winning"},
+  {tag:"raffle",       label:"Raffle"},
+  {tag:"DubaiLottery", label:"Dubai Lottery"},
+  {tag:"UAE",          label:"UAE"},
+  {tag:"Dubai",        label:"Dubai"},
+  {tag:"expat",        label:"Expat"},
 ];
 
 // ── Mastodon ME community lottery signals ─────────────────────────────────────
@@ -34,11 +38,12 @@ const ME_LOT_TERMS=["lottery","lucky","jackpot","prize","raffle","win","gambling
 
 // ── Lemmy lottery searches ────────────────────────────────────────────────────
 const LEMMY_LOT_QUERIES=[
-  "lottery jackpot winning",
-  "gambling psychology",
+  "lottery UAE Dubai lucky draw",
+  "gambling middle east",
+  "jackpot winning",
+  "lottery addiction psychology",
+  "lucky draw expat gulf",
   "lottery scam fraud",
-  "lucky draw UAE Dubai",
-  "lottery addiction help",
 ];
 
 // ── HN lottery/gambling queries ───────────────────────────────────────────────
@@ -67,10 +72,23 @@ async function fetchMastodonLotteryTag(tag){
     );
     if(!r.ok)return[];
     const posts=await r.json();
+    const cutoff7d = Date.now() - 7*24*3600*1000;
     return posts
-      .filter(p=>p.content&&!p.reblog)
+      .filter(p=>{
+        if(!p.content||p.reblog)return false;
+        // Only posts from last 7 days
+        if(new Date(p.created_at).getTime()<cutoff7d)return false;
+        const txt=stripHtml(p.content).toLowerCase();
+        // Must contain actual lottery/luck keywords (skip tangential mentions)
+        const relevant=[...LOT_HOPEFUL,...LOT_CYNICAL,...LOT_ANXIOUS,"lottery","raffle","jackpot","gambling","casino","bet","sweepstake","lucky draw","draw"];
+        return relevant.some(w=>txt.includes(w));
+      })
       .map(p=>{
         const txt=stripHtml(p.content);
+        // Detect if ME-related
+        const t=txt.toLowerCase();
+        const meKw=["uae","dubai","saudi","gulf","mena","middle east","qatar","kuwait","jordan","oman","bahrain","riyadh","abu dhabi","doha","arab","expat"];
+        const isME=meKw.some(k=>t.includes(k));
         return{
           id:"masto-lot-"+p.id,
           title:txt.slice(0,160)||`#${tag} signal`,
@@ -79,8 +97,8 @@ async function fetchMastodonLotteryTag(tag){
           timestamp:p.created_at,
           source:`#${tag}`,
           sourceType:"Mastodon",
-          tag:tag.toUpperCase(),
-          country:"Global",
+          tag:isME?"ME-LOT":tag.toUpperCase(),
+          country:isME?"Regional":"Global",
           score:p.favourites_count||0,
           comments:p.replies_count||0,
           upvoteRatio:0.7+(p.favourites_count||0)/Math.max((p.favourites_count||0)+(p.replies_count||0)+1,1)*0.3,
@@ -91,34 +109,47 @@ async function fetchMastodonLotteryTag(tag){
 
 async function fetchLemmyLottery(q){
   try{
+    // Sort by New to get recent posts, not all-time top
     const r=await fetch(
-      `https://lemmy.world/api/v3/search?q=${encodeURIComponent(q)}&type_=Posts&sort=TopAll&limit=5`,
+      `https://lemmy.world/api/v3/search?q=${encodeURIComponent(q)}&type_=Posts&sort=New&limit=8`,
       {signal:AbortSignal.timeout(6000)}
     );
     if(!r.ok)return[];
     const d=await r.json();
-    return(d.posts||[]).map(p=>{
-      const post=p.post;const counts=p.counts||{};
-      return{
-        id:"lemmy-lot-"+post.id,
-        title:post.name,
-        summary:(post.body||"").slice(0,220)||`↑${counts.score||0}`,
-        url:post.ap_id||"",
-        timestamp:post.published,
-        source:"Lemmy",
-        sourceType:"Lemmy",
-        tag:"SOCIAL",
-        country:"Global",
-        score:counts.score||0,
-        comments:counts.comments||0,
-        upvoteRatio:0.75,
-      };
-    });
+    const cutoff30d = Date.now() - 30*24*3600*1000;
+    const lotKeywords=["lottery","jackpot","winning","gambling","lucky","raffle","prize","casino","bet","draw","million","powerball"];
+    return(d.posts||[])
+      .filter(p=>{
+        if(!p.post?.name)return false;
+        if(new Date(p.post.published).getTime()<cutoff30d)return false;
+        const t=(p.post.name+" "+(p.post.body||"")).toLowerCase();
+        return lotKeywords.some(k=>t.includes(k));
+      })
+      .map(p=>{
+        const post=p.post;const counts=p.counts||{};
+        const t=(post.name+" "+(post.body||"")).toLowerCase();
+        const meKw=["uae","dubai","saudi","gulf","mena","qatar","kuwait","arab","expat","middle east"];
+        const isME=meKw.some(k=>t.includes(k));
+        return{
+          id:"lemmy-lot-"+post.id,
+          title:post.name,
+          summary:(post.body||"").slice(0,220)||`↑${counts.score||0} · 💬${counts.comments||0}`,
+          url:post.ap_id||post.url||"",
+          timestamp:post.published,
+          source:"Lemmy",
+          sourceType:"Lemmy",
+          tag:isME?"ME-LOT":"SOCIAL",
+          country:isME?"Regional":"Global",
+          score:counts.score||0,
+          comments:counts.comments||0,
+          upvoteRatio:0.75,
+        };
+      });
   }catch{return[];}
 }
 
 async function fetchHNLottery(q){
-  const since=Math.floor(Date.now()/1000)-30*24*3600;
+  const since=Math.floor(Date.now()/1000)-7*24*3600; // 7-day window for freshness
   try{
     const d=await fetch(
       `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(q)}&tags=story&hitsPerPage=5&numericFilters=created_at_i>${since}`,
