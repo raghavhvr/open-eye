@@ -3,7 +3,10 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" }
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    }
   ],
   "functions": {
     "api/ingest.js": {
@@ -14,6 +17,9 @@
     },
     "api/rss.js": {
       "maxDuration": 15
+    },
+    "api/lottery.js": {
+      "maxDuration": 30
     }
   }
 }
