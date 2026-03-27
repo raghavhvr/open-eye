@@ -122,6 +122,15 @@ async function fetchRSS(src){
     country:detectCountry(txt),section:classify(txt),sentiment:senti(txt),score:0,comments:0};});}
   catch{return[];}
 }
+// fetchReddit — calls /api/reddit (Pullpush.io, no API key needed)
+async function fetchReddit(){
+  try{
+    const res=await fetch("/api/reddit",{method:"GET",signal:AbortSignal.timeout(25000)});
+    if(!res.ok)return{articles:[],meta:{}};
+    return await res.json();
+  }catch{return{articles:[],meta:{}};}
+}
+
 // fetchSocialSignals — calls /api/social (Mastodon + Lemmy, no Reddit auth needed)
 async function fetchSocialSignals(){
   try{
@@ -565,20 +574,28 @@ export default function App(){
 
   const loadSocial=useCallback(async()=>{
     setRedditLoading(true);
-    const{articles,meta}=await fetchSocialSignals();
-    articles.sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
-    setRedditItems(articles);
-    // Build status map from meta
+    // Fetch Mastodon/Lemmy and Reddit (Pullpush) in parallel
+    const[socialData,redditData]=await Promise.all([fetchSocialSignals(),fetchReddit()]);
+    const socialArticles=socialData.articles||[];
+    const redditArticles=redditData.articles||[];
+    // Merge, dedup, sort
+    const merged=[...socialArticles,...redditArticles];
+    merged.sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
+    const seen=new Set();
+    const unique=merged.filter(i=>{if(seen.has(i.id))return false;seen.add(i.id);return true;});
+    setRedditItems(unique);
     const statuses={};
-    if(meta?.status){
-      const s=meta.status;
-      // Mark all sources as active/error based on total
+    if(socialData.meta?.status){
+      const s=socialData.meta.status;
       ['UAE','saudiarabia','qatar','Kuwait','jordan','oman','bahrain','lebanon','iraq','egypt','MiddleEast','Arabs'].forEach(sub=>{
         statuses[sub]=s.total>0?"active":"error";
       });
     }
+    if(redditData.ok)['dubai','UAE','saudiarabia','qatar','expats','middleeast'].forEach(sub=>{
+      statuses[sub]="active";
+    });
     setRedditStatus(statuses);
-    setSocialMeta(meta||{});
+    setSocialMeta({...socialData.meta||{},...{redditCount:redditArticles.length}});
     setRedditLoading(false);
   },[]);
 

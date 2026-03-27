@@ -50,15 +50,6 @@ const LEMMY_LOT_QUERIES=[
   "lottery winner million Dubai",
 ];
 
-// ── Wikipedia: factual context cards ─────────────────────────────────────────
-const WIKI_TOPICS=[
-  "Dubai Duty Free Millennium Millionaire",
-  "Lottery",
-  "Gambling in the United Arab Emirates",
-  "Lucky draw",
-  "Problem gambling",
-];
-
 async function fetchHNLottery(q){
   const since=Math.floor(Date.now()/1000)-30*24*3600;
   try{
@@ -120,26 +111,6 @@ async function fetchLemmyLottery(q){
   }catch{return[];}
 }
 
-async function fetchWikiLottery(topic){
-  try{
-    const d=await fetch(
-      `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(topic)}`,
-      {signal:AbortSignal.timeout(5000)}
-    ).then(r=>r.json());
-    if(!d.extract)return null;
-    return{
-      id:"wiki-lot-"+topic.replace(/\s+/g,"-"),
-      title:d.title,
-      summary:d.extract.slice(0,280),
-      url:d.content_urls?.desktop?.page||"",
-      timestamp:new Date().toISOString(),
-      source:"Wikipedia",sourceType:"Wiki",tag:"INTEL",
-      country:isMERelated(topic)?"UAE":"Global",
-      score:0,comments:0,upvoteRatio:1,
-    };
-  }catch{return null;}
-}
-
 function calcUncertainty(items){
   if(items.length<5)return 78;
   const moodCounts={HOPEFUL:0,CYNICAL:0,ANXIOUS:0,NEUTRAL:0};
@@ -163,15 +134,13 @@ export default async function handler(req,res){
 
   const results=[];const seen=new Set();
 
-  const [lemmyResults,hnResults,wikiResults]=await Promise.all([
+  const [lemmyResults,hnResults]=await Promise.all([
     Promise.allSettled(LEMMY_LOT_QUERIES.map(q=>fetchLemmyLottery(q))),
     Promise.allSettled(HN_LOT_QUERIES.map(q=>fetchHNLottery(q))),
-    Promise.allSettled(WIKI_TOPICS.map(t=>fetchWikiLottery(t))),
   ]);
 
   for(const r of lemmyResults){if(r.status==="fulfilled")results.push(...r.value);}
   for(const r of hnResults){if(r.status==="fulfilled")results.push(...r.value);}
-  for(const r of wikiResults){if(r.status==="fulfilled"&&r.value)results.push(r.value);}
 
   const unique=results.filter(i=>{if(!i.id||seen.has(i.id))return false;seen.add(i.id);return true;});
 
