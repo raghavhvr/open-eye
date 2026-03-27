@@ -1,11 +1,13 @@
 // api/lottery.js — ME Lottery Pulse
-// Sources: HN (30d), Lemmy, Wikipedia context
-// Mastodon REMOVED — hashtags return irrelevant global noise
-// Focus: Dubai Duty Free, BigTicket, Mahzooz, expat lucky draws
+// Sources:
+//   1. Pullpush Reddit: r/lottery (top posts), r/dubai, r/UAE, r/expats (ME-filtered)
+//   2. Lemmy: lottery/gambling topics
+//   3. HN: no date filter, broad lottery queries
+// Strategy: fetch real engaging content, filter/prioritise ME-relevant, show global as context
 
-const LOT_HOPEFUL=["win","winner","jackpot","lucky","dream","hope","million","tonight","ticket","chance","raffle","prize","draw","blessed","fortune","rich","wealth","luckydraw","sweepstake","congratulations","won","awarded","collected","claimed","surprise"];
-const LOT_CYNICAL=["scam","fraud","rigged","impossible","never","waste","sucker","odds","cheat","fake","illegal","banned","haram","forbidden","corrupt","addiction","problem","loss","regret","trap","pointless"];
-const LOT_ANXIOUS=["debt","desperate","spent","need","last","only","please","help","poor","broke","struggling","crisis","worry","afford","family","savings","rent","emergency"];
+const LOT_HOPEFUL=["win","winner","jackpot","lucky","dream","hope","million","ticket","chance","raffle","prize","draw","blessed","fortune","rich","wealth","congratulations","won","awarded","claimed","collected"];
+const LOT_CYNICAL=["scam","fraud","rigged","impossible","waste","sucker","odds","cheat","fake","illegal","banned","haram","forbidden","corrupt","addiction","trap","beware","warning","regret","never win"];
+const LOT_ANXIOUS=["debt","desperate","spent","need","last","only","please","help","poor","broke","struggling","worry","afford","savings","emergency","losing everything"];
 
 function classifyLottery(text){
   const t=(text||"").toLowerCase();
@@ -19,92 +21,97 @@ function classifyLottery(text){
   return"NEUTRAL";
 }
 
-function isMERelated(text){
+function isME(text){
   const t=(text||"").toLowerCase();
-  return["uae","dubai","abu dhabi","sharjah","saudi","riyadh","gulf","mena","qatar","doha","kuwait","oman","muscat","bahrain","arab","expat","big ticket","duty free","mahzooz","emirates draw","lulu raffle","dewa","etisalat","du telecom"].some(k=>t.includes(k));
+  return["uae","dubai","abu dhabi","sharjah","saudi","gulf","qatar","kuwait","oman","bahrain","arab","expat in","mahzooz","emirates draw","big ticket","duty free","dream dubai","dirham","aed"].some(k=>t.includes(k));
 }
 
-// ── HN: broad lottery + ME queries, 30-day window ────────────────────────────
-const HN_LOT_QUERIES=[
-  "Dubai Duty Free lottery millionaire",
-  "Big Ticket Abu Dhabi winner",
-  "UAE lucky draw expat million",
-  "Mahzooz Emirates lottery draw",
-  "lottery gambling UAE Gulf",
-  "lottery psychology winning odds",
-  "online gambling regulation middle east",
-  "lottery addiction problem gambling",
-  "expat UAE salary lucky",
-  "lottery scam fraud online",
-];
+const LOT_KW=["lottery","jackpot","won","winner","winning","lucky","raffle","prize","draw","million","ticket","duty free","big ticket","mahzooz","gambling","lotto","lucky draw","scratch","grand prize","sweepstake","powerball"];
 
-// ── Lemmy: specific ME lottery terms ─────────────────────────────────────────
-const LEMMY_LOT_QUERIES=[
-  "Dubai Duty Free lottery",
-  "Big Ticket Abu Dhabi",
-  "UAE lottery expat win",
-  "Mahzooz lottery draw UAE",
-  "lucky draw Gulf expat",
-  "gambling middle east",
-  "online lottery legal UAE",
-  "lottery winner million Dubai",
-];
-
-async function fetchHNLottery(q){
-  const since=Math.floor(Date.now()/1000)-30*24*3600;
-  try{
-    const d=await fetch(
-      `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(q)}&tags=story&hitsPerPage=10&numericFilters=created_at_i>${since}`,
-      {signal:AbortSignal.timeout(6000)}
-    ).then(r=>r.json());
-    const lotKw=["lottery","jackpot","win","gambling","lucky","raffle","prize","casino","bet","draw","million","ticket","duty free","big ticket","mahzooz","sweepstake"];
-    return(d.hits||[])
-      .filter(h=>{
-        const t=(h.title||"").toLowerCase();
-        return lotKw.some(k=>t.includes(k));
+// ── Pullpush Reddit ───────────────────────────────────────────────────────────
+async function fetchPullpush(sub, size=100, sortType="score") {
+  try {
+    const url=`https://api.pullpush.io/reddit/search/submission/?subreddit=${sub}&size=${size}&sort=desc&sort_type=${sortType}`;
+    const r=await fetch(url,{headers:{"User-Agent":"OpenEye/1.0"},signal:AbortSignal.timeout(12000)});
+    if(!r.ok)return[];
+    const d=await r.json();
+    return(d.data||[])
+      .filter(p=>p.title&&!p.removed_by_category)
+      .filter(p=>{
+        // For ME subs, filter for lottery keywords; for r/lottery, take all
+        if(sub==="lottery")return true;
+        const text=(p.title+" "+(p.selftext||"")).toLowerCase();
+        return LOT_KW.some(k=>text.includes(k));
       })
-      .map(h=>({
-        id:"hn-lot-"+h.objectID,
-        title:h.title,
-        summary:`${h.points||0} pts · ${h.num_comments||0} comments`,
-        url:h.url||`https://news.ycombinator.com/item?id=${h.objectID}`,
-        timestamp:h.created_at,
-        source:"Hacker News",sourceType:"HN",tag:"TECH",
-        country:isMERelated(h.title)?"Regional":"Global",
-        score:h.points||0,comments:h.num_comments||0,upvoteRatio:0.8,
-      }));
+      .map(p=>{
+        const text=p.title+" "+(p.selftext||"");
+        return{
+          id:`reddit-lot-${p.id}`,
+          title:p.title,
+          summary:(p.selftext||"").replace(/\n+/g," ").trim().slice(0,240)||`↑${p.score||0} · 💬${p.num_comments||0} comments`,
+          url:`https://reddit.com${p.permalink||""}`,
+          timestamp:new Date((p.created_utc||0)*1000).toISOString(),
+          source:`r/${sub}`,
+          sourceType:"Reddit",
+          tag:isME(text)?"ME-LOT":"LOT",
+          country:isME(text)?"Regional":"Global",
+          score:p.score||0,
+          comments:p.num_comments||0,
+          upvoteRatio:p.upvote_ratio||0.75,
+        };
+      });
   }catch{return[];}
 }
 
-async function fetchLemmyLottery(q){
+// ── HN — no date filter, broad lottery queries ────────────────────────────────
+async function fetchHN(){
+  const queries=["lottery jackpot winner","gambling psychology winning","Dubai lottery UAE","lottery scam fraud","lottery addiction problem","big jackpot winner story"];
+  const all=[];const seen=new Set();
+  await Promise.allSettled(queries.map(async q=>{
+    try{
+      const d=await fetch(`https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(q)}&tags=story&hitsPerPage=8`).then(r=>r.json());
+      for(const h of(d.hits||[])){
+        if(!h.title||seen.has(h.objectID))continue;
+        seen.add(h.objectID);
+        const text=h.title+" "+(h.url||"");
+        if(!LOT_KW.some(k=>text.toLowerCase().includes(k)))continue;
+        all.push({
+          id:"hn-lot-"+h.objectID,title:h.title,
+          summary:`${h.points||0} pts · ${h.num_comments||0} comments`,
+          url:h.url||`https://news.ycombinator.com/item?id=${h.objectID}`,
+          timestamp:h.created_at,source:"Hacker News",sourceType:"HN",
+          tag:isME(h.title)?"ME-LOT":"LOT",country:isME(h.title)?"Regional":"Global",
+          score:h.points||0,comments:h.num_comments||0,upvoteRatio:0.8,
+        });
+      }
+    }catch{}
+  }));
+  return all;
+}
+
+// ── Lemmy ─────────────────────────────────────────────────────────────────────
+async function fetchLemmy(q){
   try{
-    const r=await fetch(
-      `https://lemmy.world/api/v3/search?q=${encodeURIComponent(q)}&type_=Posts&sort=New&limit=10`,
-      {signal:AbortSignal.timeout(7000)}
-    );
+    const r=await fetch(`https://lemmy.world/api/v3/search?q=${encodeURIComponent(q)}&type_=Posts&sort=New&limit=10`,{signal:AbortSignal.timeout(8000)});
     if(!r.ok)return[];
     const d=await r.json();
-    const cutoff=Date.now()-30*24*3600*1000;
-    const lotKw=["lottery","jackpot","win","gambling","lucky","raffle","prize","casino","bet","draw","million","ticket","duty free","big ticket","mahzooz"];
+    const cutoff=Date.now()-60*24*3600*1000;
     return(d.posts||[])
       .filter(p=>{
         if(!p.post?.name)return false;
         if(new Date(p.post.published).getTime()<cutoff)return false;
         const t=(p.post.name+" "+(p.post.body||"")).toLowerCase();
-        return lotKw.some(k=>t.includes(k));
+        return LOT_KW.some(k=>t.includes(k));
       })
       .map(p=>{
         const post=p.post;const counts=p.counts||{};
-        const txt=post.name+" "+(post.body||"");
+        const text=post.name+" "+(post.body||"");
         return{
-          id:"lemmy-lot-"+post.id,
-          title:post.name,
-          summary:(post.body||"").slice(0,220)||`↑${counts.score||0} · 💬${counts.comments||0}`,
-          url:post.ap_id||post.url||"",
-          timestamp:post.published,
+          id:"lemmy-lot-"+post.id,title:post.name,
+          summary:(post.body||"").slice(0,220)||`↑${counts.score||0}`,
+          url:post.ap_id||post.url||"",timestamp:post.published,
           source:"Lemmy",sourceType:"Lemmy",
-          tag:isMERelated(txt)?"ME-LOT":"SOCIAL",
-          country:isMERelated(txt)?"Regional":"Global",
+          tag:isME(text)?"ME-LOT":"LOT",country:isME(text)?"Regional":"Global",
           score:counts.score||0,comments:counts.comments||0,upvoteRatio:0.75,
         };
       });
@@ -113,66 +120,51 @@ async function fetchLemmyLottery(q){
 
 function calcUncertainty(items){
   if(items.length<5)return 78;
-  const moodCounts={HOPEFUL:0,CYNICAL:0,ANXIOUS:0,NEUTRAL:0};
-  const ratios=[];
-  for(const item of items){
-    const mood=classifyLottery(item.title+" "+(item.summary||""));
-    moodCounts[mood]++;
-    if(item.upvoteRatio>0)ratios.push(item.upvoteRatio);
-  }
-  const total=items.length;
-  const dominant=Math.max(...Object.values(moodCounts));
-  const dominance=dominant/total;
-  const avgRatio=ratios.length?ratios.reduce((a,b)=>a+b,0)/ratios.length:0.6;
-  const ratioVariance=ratios.length?ratios.reduce((acc,r)=>acc+Math.pow(r-avgRatio,2),0)/ratios.length:0.2;
-  const raw=(1-dominance)*55+ratioVariance*25+(items.length<10?20:0);
-  return Math.min(99,Math.max(1,Math.round(raw)));
+  const mc={HOPEFUL:0,CYNICAL:0,ANXIOUS:0,NEUTRAL:0};
+  for(const i of items)mc[classifyLottery(i.title+" "+(i.summary||""))]++;
+  const dom=Math.max(...Object.values(mc));
+  return Math.min(99,Math.max(1,Math.round((1-dom/items.length)*55+(items.length<10?20:0))));
 }
 
 export default async function handler(req,res){
   if(req.method!=="GET"&&req.method!=="POST")return res.status(405).json({error:"Method not allowed"});
 
-  const results=[];const seen=new Set();
-
-  const [lemmyResults,hnResults]=await Promise.all([
-    Promise.allSettled(LEMMY_LOT_QUERIES.map(q=>fetchLemmyLottery(q))),
-    Promise.allSettled(HN_LOT_QUERIES.map(q=>fetchHNLottery(q))),
+  const [redditLottery, redditDubai, redditUAE, redditExpats, hnItems, lemmyResults]=await Promise.all([
+    fetchPullpush("lottery",100,"score"),       // r/lottery top posts (global, high engagement)
+    fetchPullpush("dubai",100,"created_utc"),   // r/dubai - filter for lottery keywords
+    fetchPullpush("UAE",100,"created_utc"),     // r/UAE - filter for lottery keywords
+    fetchPullpush("expats",50,"created_utc"),   // r/expats
+    fetchHN(),
+    Promise.allSettled(["lottery jackpot winner","UAE Dubai lottery","gambling winning psychology","lottery scam fraud","lottery big win"].map(fetchLemmy)),
   ]);
 
-  for(const r of lemmyResults){if(r.status==="fulfilled")results.push(...r.value);}
-  for(const r of hnResults){if(r.status==="fulfilled")results.push(...r.value);}
+  const all=[
+    ...redditLottery,...redditDubai,...redditUAE,...redditExpats,...hnItems,
+    ...(lemmyResults.filter(r=>r.status==="fulfilled").flatMap(r=>r.value)),
+  ];
 
-  const unique=results.filter(i=>{if(!i.id||seen.has(i.id))return false;seen.add(i.id);return true;});
+  const seen=new Set();
+  const unique=all.filter(i=>{if(!i.id||seen.has(i.id))return false;seen.add(i.id);return true;});
 
   // ME signals first, then by score
   unique.sort((a,b)=>{
-    const aME=isMERelated(a.title+a.summary)?1:0;
-    const bME=isMERelated(b.title+b.summary)?1:0;
+    const aME=isME(a.title+a.summary)?1:0;
+    const bME=isME(b.title+b.summary)?1:0;
     if(bME!==aME)return bME-aME;
-    return(b.score-a.score)||new Date(b.timestamp)-new Date(a.timestamp);
+    if(b.score!==a.score)return b.score-a.score;
+    return new Date(b.timestamp)-new Date(a.timestamp);
   });
 
   const moodDist={HOPEFUL:0,CYNICAL:0,ANXIOUS:0,NEUTRAL:0};
-  for(const item of unique){
-    const mood=classifyLottery(item.title+" "+(item.summary||""));
-    moodDist[mood]++;
-  }
+  for(const item of unique)moodDist[classifyLottery(item.title+" "+(item.summary||""))]++;
   const dominantMood=Object.entries(moodDist).sort((a,b)=>b[1]-a[1])[0]?.[0]||"NEUTRAL";
+  const meSignals=unique.filter(i=>isME(i.title+(i.summary||""))).length;
   const ratios=unique.filter(r=>r.upvoteRatio>0).map(r=>r.upvoteRatio);
   const avgUpvoteRatio=ratios.length?Math.round(ratios.reduce((a,b)=>a+b,0)/ratios.length*100):60;
-  const meSignals=unique.filter(i=>isMERelated(i.title+i.summary)).length;
 
   res.setHeader("Cache-Control","s-maxage=300,stale-while-revalidate=600");
   return res.status(200).json({
     items:unique,
-    meta:{
-      totalSignals:unique.length,
-      meSignals,
-      sourceDiversity:new Set(unique.map(r=>r.sourceType)).size,
-      avgUpvoteRatio,
-      uncertaintyScore:calcUncertainty(unique),
-      dominantMood,
-      moodDist,
-    },
+    meta:{totalSignals:unique.length,meSignals,sourceDiversity:new Set(unique.map(r=>r.sourceType)).size,avgUpvoteRatio,uncertaintyScore:calcUncertainty(unique),dominantMood,moodDist},
   });
 }
