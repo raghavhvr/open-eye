@@ -158,11 +158,24 @@ async function fetchGemini(items,mode="intelligence"){
   catch(e){return{_error:e.message};}
 }
 async function fetchBulkIngest(onProgress){
-  onProgress({stage:"Connecting to ingest pipeline…",pct:5});
+  // 1. Try Redis store first (instant, data from backfill + hourly cron)
+  onProgress({stage:"Checking Redis store…",pct:5});
+  try{
+    const stored=await fetch("/api/store-read",{signal:AbortSignal.timeout(8000)});
+    if(stored.ok){
+      const sd=await stored.json();
+      if(sd.ok&&sd.articles&&sd.articles.length>0){
+        onProgress({stage:`Loaded ${sd.articles.length} signals from store…`,pct:90});
+        return sd;
+      }
+    }
+  }catch(e){/* store not ready, fall through to live fetch */}
+  // 2. Fall back to live ingest if store empty/unavailable
+  onProgress({stage:"Fetching live sources…",pct:15});
   try{const res=await fetch("/api/ingest",{method:"GET",signal:AbortSignal.timeout(55000)});
-  onProgress({stage:"Fetching RSS · Reddit · HN in parallel…",pct:30});
+  onProgress({stage:"Fetching RSS · HN in parallel…",pct:40});
   if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.error||`HTTP ${res.status}`);}
-  onProgress({stage:"Classifying sections & sentiment…",pct:70});
+  onProgress({stage:"Classifying sections & sentiment…",pct:75});
   const data=await res.json();onProgress({stage:"Complete — loading…",pct:95});return data;}
   catch(e){throw new Error(e.message);}
 }
@@ -592,6 +605,31 @@ export default function App(){
     }catch(e){setBulkError(e.message);}
     finally{setTimeout(()=>{setBulkLoading(false);setBulkProgress({stage:"",pct:0});},1800);}
   },[items,redditItems]);
+
+  // Auto-load from Redis store on startup (runs once)
+  useEffect(()=>{
+    async function autoLoadStore(){
+      try{
+        const res=await fetch("/api/store-read",{signal:AbortSignal.timeout(10000)});
+        if(!res.ok)return;
+        const sd=await res.json();
+        if(!sd.ok||!sd.articles||sd.articles.length===0)return;
+        // Populate items from store
+        setItems(prev=>{
+          const existIds=new Set(prev.map(i=>i.id));
+          const fresh=sd.articles.filter(a=>!existIds.has(a.id));
+          const merged=[...prev,...fresh].sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
+          const seen=new Set();return merged.filter(i=>{if(seen.has(i.id))return false;seen.add(i.id);return true;});
+        });
+        setBulkMeta(sd.meta);
+        if(sd.sourceHealth){
+          const ns={};(sd.sourceHealth.rss||[]).forEach(s=>{ns[s.id]=s.status;});
+          setSrcStatuses(p=>({...p,...ns}));
+        }
+      }catch(e){/* store unavailable — live sources will load */}
+    }
+    autoLoadStore();
+  },[]);
 
   useEffect(()=>{
     loadMain();loadSocial();loadLottery();
