@@ -2,34 +2,15 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
-  "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
-    }
-  ],
   "functions": {
-    "api/ingest.js": {
-      "maxDuration": 60
-    },
-    "api/brief.js": {
-      "maxDuration": 30
-    },
-    "api/rss.js": {
-      "maxDuration": 15
-    },
-    "api/lottery.js": {
-      "maxDuration": 30
-    },
-    "api/social.js": {
-      "maxDuration": 30
-    },
-    "api/backfill.js": {
-      "maxDuration": 60
-    },
-    "api/reddit.js": {
-      "maxDuration": 30
-    }
+    "api/ingest.js":    { "maxDuration": 60 },
+    "api/brief.js":     { "maxDuration": 30 },
+    "api/rss.js":       { "maxDuration": 15 },
+    "api/lottery.js":   { "maxDuration": 30 },
+    "api/social.js":    { "maxDuration": 30 },
+    "api/backfill.js":  { "maxDuration": 60 },
+    "api/reddit.js":    { "maxDuration": 30 },
+    "api/store-read.js":{ "maxDuration": 15 }
   },
   "crons": [
     {
